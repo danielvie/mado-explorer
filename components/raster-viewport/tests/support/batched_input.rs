@@ -1,6 +1,8 @@
 use super::*;
 use egui::{ColorImage, Context, Modifiers, RawInput, TextureOptions, TouchPhase, vec2};
 
+#[path = "modal_capture.rs"]
+mod modal_capture;
 #[path = "ordered_pan.rs"]
 mod ordered_pan;
 
@@ -36,6 +38,10 @@ impl Harness {
     }
 
     fn frame(&mut self, events: Vec<Event>) -> Frame {
+        self.frame_with_after(events, |_| {})
+    }
+
+    fn frame_with_after(&mut self, events: Vec<Event>, mut after: impl FnMut(&mut Ui)) -> Frame {
         let mut views = [None, None];
         let mut text = Rect::NOTHING;
         let mut remaining_after_left = Vec::new();
@@ -65,6 +71,7 @@ impl Harness {
                         }
                     }
                 });
+                after(ui);
             },
         );
         output.drop_without_applying_deltas();

@@ -105,6 +105,40 @@ cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git commit -m "Preserve
 
 F07.2/F08.3 remain partial component controls only. Event-time input uses current-frame layout/layer geometry, not layout history. Fresh instances with ordered position-changing batches cannot infer a missing pre-batch pointer and do not guess from final position. Native/GPU/Narrator/actual monitor checks remain pending. No native/data probe, source I/O, decoder, cache, clipboard, root suite, dependency change, production enablement, merge/rebase/push or nested delegation occurred. This section supersedes the historical R01 whole-frame response-delta pan mechanism. Await fresh exact-head review and parent approval/serial integration/validation before any next feature.
 
+## S013-R06 modal capture correction and validation
+
+- Frozen fix base: e440403ad39d4e72b0b307c5834202a7286ceb55, lane/raster-viewport in C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport. The owned component-only commit containing this section is a candidate ready for fresh exact-head review, not self-approved progress. Its exact SHA is returned separately and resolves with `git rev-parse HEAD` in this checkout.
+- Owned paths: src/lib.rs, tests/support/batched_input.rs, new tests/support/modal_capture.rs and HANDOFF.md. All nineteen prior test functions/assertions remain unchanged; the shared test harness only adds an after-background callback for a real egui Modal. No src/tests.rs, ordered_pan.rs, dependency, manifest, lockfile, Taskfile, root or sibling changes.
+- Parent-only PROGRESS.md remains unedited and unstaged. Initial and final blob hash: fd9c683c2fc1bf42307928580f08989a1c295364.
+- Installed egui 0.36.2 inspected: context.rs response enabled/drag flags, interaction.rs retained capture through pointer movement, memory/mod.rs public Memory::allows_interaction and is_above_modal_layer, and containers/modal.rs Modal::show/set_modal_layer. Enabled background responses can remain dragged behind an established modal. Layer permission separately excludes layers behind the modal and orders that disallow interaction.
+- The existing event-replay block now requires both response.enabled() and `ui.ctx().memory(|memory| memory.allows_interaction(response.layer_id))`. Denial never takes or consumes the event vector. The instance capture was already taken at show entry, so skipping replay drops it without touching global egui capture/focus/cache. Old held-button movement after dismissal cannot resume pan without a new admitted press. Event chronology, anchors, physical density, clamps, source/document identity and current geometry rules are unchanged.
+
+Actual headless red check on the frozen old implementation plus the new regression:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport/components/raster-viewport && cargo test --offline --locked --target-dir target --lib established_modal -- --nocapture
+```
+
+Exit 101: zero passed, one failed, nineteen filtered out. Exact assertion evidence: `-220 != -240` at tests/support/batched_input.rs:107. After an admitted primary raster drag at 100%, the stationary modal frame was established with the button held; the next enabled-background movement shifted image min x by 20 behind the still-present modal. This was the single new failure diagnosis. One minimal source correction made the regression pass; no assertion was removed or weakened.
+
+Coherent correction checks using the existing component target:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport/components/raster-viewport && cargo fmt && cargo fmt --check && cargo check --offline --locked --target-dir target --all-targets && cargo test --offline --locked --target-dir target --lib established_modal -- --nocapture && cargo test --offline --locked --target-dir target && task test
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git diff --check && git diff --stat && git diff -- components/raster-viewport/src/lib.rs components/raster-viewport/tests/support/batched_input.rs && git status --short && git hash-object PROGRESS.md
+```
+
+Passed fmt, locked offline incremental all-target check, the focused regression, all twenty component tests with zero failures/ignored and zero doc-tests, and task test's same twenty tests. Diff whitespace check passes. The new regression runs native Zoom and Ctrl-wheel variants with actual Context::run_ui/Modal/TextEdit/generated textures. It proves established modal exclusion with enabled/dragged background responses, unchanged pan/scale, exact event availability after the left raster and inside the modal, text entry reaching the modal, dropped instance capture, continued egui capture after dismissal without resumed pan, no pan on old release, and successful fresh press/motion/release.
+
+Owned commit inspection:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git add -- components/raster-viewport/src/lib.rs components/raster-viewport/tests/support/batched_input.rs components/raster-viewport/tests/support/modal_capture.rs components/raster-viewport/HANDOFF.md && git diff --cached --check && git diff --cached --stat && git diff --cached --name-only && git diff --cached -- components/raster-viewport
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git commit -m "Respect modal layer permission for raster gesture replay" && git rev-parse HEAD && git status --short && git hash-object PROGRESS.md && git diff --check
+```
+
+F07.2/F08.3 remain partial borrowed-texture controls only. This check covers an established modal, not event-time layout history or a production adapter. No full criterion, native GUI/GPU appearance, GPU-memory/global retained-UI bound, cache/decoder or monitor/accessibility claim. No source I/O, clipboard, actual GPU/native GUI, dependency change, production enablement, root suite, nested delegation, rebase/merge/push or root/sibling write occurred. Wait for fresh review and parent approval/serial integration/validation before a next task against updated main.
+
 ## Original P07 validation commands and outcomes
 
 Every shell invocation used an explicit checkout/component cwd. The final coherent code checks were:

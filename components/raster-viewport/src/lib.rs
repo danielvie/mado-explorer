@@ -115,7 +115,13 @@ impl RasterViewport {
                 // Replay unsmoothed events at their pointer position, not final hover.
                 // Take the existing event vector to query layer ownership without nested
                 // context locks; no event copy or retained event queue is needed.
-                if response.enabled() {
+                // Enabled responses can retain egui capture behind a modal. Denial
+                // drops our taken capture and leaves the owner's events untouched.
+                if response.enabled()
+                    && ui
+                        .ctx()
+                        .memory(|memory| memory.allows_interaction(response.layer_id))
+                {
                     let from_global = ui.ctx().layer_transform_from_global(response.layer_id);
                     let mut events = ui.input_mut(|input| std::mem::take(&mut input.events));
                     // Only a stationary batch may use the context's final position.
