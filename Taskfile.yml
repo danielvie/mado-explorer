@@ -25,6 +25,12 @@ tasks:
       - task test:pdf-service
       - task test:pdf-controls
       - task test:keep-both
+      - task test:confirmation
+
+  test:confirmation:
+    desc: Test accepted immutable deletion-intent confirmations without OS deletion
+    cmds:
+      - cargo test --locked --manifest-path components/delete-confirmation/Cargo.toml --target-dir target/p15
 
   test:keep-both:
     desc: Test accepted read-only native Keep both name planning
