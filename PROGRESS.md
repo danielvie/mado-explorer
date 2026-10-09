@@ -2,21 +2,21 @@
 
 ## Current state
 
-- Baseline: S001-S007 accepted; the read-only core now has independent tabs in one pane, with bounded window-owned services and retained tab state.
+- Baseline: S001-S008 accepted; independent resizable panes own their tab sets, with fixed window services and target-aware concurrent routing.
 - Implementation policy: AGENTS.md. Scope and acceptance contracts: SPEC.md.
 - Current checkpoint: 2, workspace. Checkpoint 1 implementation/review gates passed; remaining platform/manual items stay explicit and do not block independent workspace implementation.
-- Active slice: S008, split-pane creation, focus and resizing, ready to launch.
-- Next supervisor action: launch S008, inspect pane-state isolation/concurrent routing and minimum-size checks, commit accepted progress, then add tab dragging and folder finder.
-- Fourteen criteria are implemented and one is verified. Remaining UI/OS/manual checks and cross-stage clauses are still pending.
+- Active slice: S009, tab reorder/transfer and edge-drop splits, ready to launch.
+- Next supervisor action: launch S009, inspect state-preserving drag transactions/minimum guards, commit accepted progress, then implement the captured-target folder finder.
+- Eighteen criteria are implemented and one is verified. Remaining UI/OS/manual checks and cross-stage clauses are still pending.
 
-## Active slice S008
+## Active slice S009
 
-- Behavior: left/right and top/bottom splits, independent pane tab sets, visible focused pane/F6, draggable dividers, minimum usable sizes and pane collapse.
-- Targets: F04.1, F04.3-F04.6, remaining F02.3 pane isolation and non-final-pane F03.4 behavior. Tab-edge/cross-pane dragging is a later slice.
+- Behavior: drag tabs within a strip, between panes, or onto a pane edge to create a split while moving the original browsing context.
+- Targets: F03.3 and F04.2. Preserve tab state/IDs, focused destination, cancellation/routing, recursive minimums and non-final-pane collapse.
 - Write boundary: worker owns relevant src/ and README.md only. The supervisor owns tracker/spec/glossary/design/AGENTS/Taskfile and acceptance/commits.
-- Focused check: both split axes/nesting, focus and command targeting, independent simultaneous pane loads/projections, divider clamps/refused impossible splits, closing/collapsing a pane and retained tab state.
-- Resource contract: fixed window-owned enumeration/projection worker counts; add target-aware coalescing/routing for concurrent visible panes without unrelated pane requests cancelling or starving each other. Fonts and explicit launcher stay window-owned.
-- Exclusions: tab dragging/drop edges, filesystem operations, persistence, previews, finder, registry changes, general docking framework and exhaustive UI automation.
+- Focused check: reorder/transfer state and active-ID preservation, source-last-tab collapse, all four edges, rejected/cancelled/stale drops, visible feedback and generation-safe refresh after movement.
+- Lone-tab own-edge rule: move the original tab into the new pane and give the source pane a fresh tab at that original committed location, so the requested split survives. Moving a last tab into a different existing pane collapses its empty source.
+- Exclusions: file drag/drop operations, persistence, previews, folder finder, registry changes, new docking dependencies and exhaustive UI automation.
 - Handoff: changed paths, exact checks/results, complete versus partial IDs, remaining risks, and next useful slice. Worker does not commit or change criterion statuses.
 
 ## Accepted slices
@@ -38,6 +38,8 @@
 - S006b / R001 P1 closed: enumeration workers normalize ordinary Windows paths with native full-path behavior, return effective destinations only on successful completion, and build row paths from that same location. Real disposable parent-then-Up, absolute-dot, same-location alias/history/selection and stale/failure regressions pass. Native Unicode/UNC/verbatim representations are preserved; actual unsupported verbatim-dot cases fail explicitly without changing prior state. Supervisor inspected the correction and ran formatting/check, all default checks (56 passed, one explicit reference-host font probe ignored) and native build successfully. R001 P2 remains resolved by separately passing task test:fonts with unchanged assertions. No new dependency or physical/junction-identity promise was introduced.
 
 - S007: tab-owned navigation/selection/filter/sort/visibility/editor/error/scroll state, stable non-reused tab IDs, plus/close/exact-modifier shortcuts, overflow/reveal and final-tab home replacement. Shared window services use unique activation generations; inactive/closed responses are rejected, and captured-launch completion survives origin-tab close without touching another context. Deferred complete-fresh scroll restoration preserves manual offset rather than jumping to an unrelated selected row. Supervisor inspected production source and reran eight focused tab checks plus captured-launch-close and counts/no-match regressions, formatting/compile checks: ten distinct checks passed. Native tab/hover/DPI/Narrator and remaining pane/drag/persistence clauses stay pending.
+
+- S008: binary split layout, recursive 320 x 300 pane minimums/six-point dividers, offscreen/impossible split refusal, min-size workspace scrolling, explicit focused-pane/F6 reveal, name-first responsive columns and pane close/collapse. Two enumeration and one projection workers are fixed window-wide; target-aware coalesced FIFO requests, cancellation tokens and per-target results preserve unrelated pane work. Pointer focus precedes keyboard dispatch; inactive pane widgets cannot consume another pane's key/text/IME/clipboard events. Supervisor inspected layout/input/lifecycle/routing source and reran nine split checks, eight tab checks, seven launch and six filter checks: thirty distinct checks passed plus fmt/compile/diff checks. Native split/divider/overflow/DPI/Narrator, mutating-operation retention and previews remain pending.
 
 ## Blockers and pending manual checks
 
@@ -61,21 +63,21 @@ Statuses: Not started, In progress, Implemented, Verified, Blocked. Evidence mus
 | F01.7 | Implemented | Double-click or Enter opens a folder in the current tab, or opens a regular file using the OS default application | S005: folder routing and bounded ShellExecuteExW file launch use captured fresh visible native paths, exact editor/control/repeat guards and path-specific OS errors. Six new activation/launch checks and existing guards pass. Real associated-file/extension/long-path/native GUI verification pending. |
 | F02.1 | Implemented | Click selects one entry; Ctrl+click toggles entries; Shift+click selects a range in the current displayed order | S003: whole-row click/toggle/range/all, native non-Unicode identity and metadata/gap pointer regressions pass. Native GUI interaction pending; filtering integrates in S004. |
 | F02.2 | Implemented | Arrow keys, Home, End, Page Up, and Page Down move the active row and keep it visible | S003: boundaries/pages/Shift and active-row scroll targets pass state/headless checks at small and normal viewports. Native keyboard/visual verification pending. |
-| F02.3 | In progress | Selection belongs to the tab | S007 tab selection/active/anchor isolation and stale/closed-context guards pass; S008 adds independent pane focus/selection. Native interaction pending. |
+| F02.3 | Implemented | Selection belongs to the tab | S007-S008 independent tab/pane selection and active/anchor state, focused-only key dispatch and stale/closed-target rejection pass state/headless/background checks. Native pane/tab interaction pending. |
 | F02.4 | Not started | Commands operate on an immutable snapshot of selected paths taken when invoked |  |
 | F02.5 | In progress | Explorer shortcuts do not run while typing in the finder, filter, path editor, or rename field | S002-S004: path/filter TextEdit and submission-frame ownership, exact modifiers, Escape filter-focus exit and Enter versus other-control focus are regression-tested. Finder/rename later. |
 | F02.6 | Implemented | Refresh removes vanished selections while preserving surviving selected paths, rather than preserving row numbers. | S003: reconcile raw native paths only on successful current-generation completion; progressive/failed/stale results preserve identities. Survivor/disappearance/empty-folder tests pass; native refresh smoke pending. |
 | F03.1 | Implemented | Ctrl+T or the plus button creates a tab at the current location | S007 plus/x and exact-modifier create/close/cycle handlers, committed-location initialization and editor ownership pass state/headless checks. Multi-pane target routing integrates in S008; native keyboard interaction pending. |
 | F03.2 | Implemented | Returning to a tab restores its location, history, filter, sort, selection, and scroll position | S007 independent state/drafts/selection and deferred fresh-listing scroll restoration pass real-background/headless checks, including two tabs at the same folder. Inactive tabs refresh on return; native state/scroll smoke pending. |
-| F03.3 | Not started | Tabs can be reordered within a pane and moved between panes by dragging |  |
-| F03.4 | In progress | Closing the last tab of a non-final pane closes that pane | S007 final-window-tab home replacement and stable non-reused IDs pass injected-fixture/control checks. S008 completes non-final-pane collapse. |
+| F03.3 | In progress | Tabs can be reordered within a pane and moved between panes by dragging | S009 planned: move the actual tab context and preserve stable IDs/state; no completion claim. |
+| F03.4 | Implemented | Closing the last tab of a non-final pane closes that pane | S007-S008 final home replacement, non-final pane collapse, retained surviving contexts and stable IDs pass focused state/control checks. Native close/layout interaction pending. |
 | F03.5 | Implemented | Tab labels remain usable when many tabs are open, with overflow scrolling or an overflow menu | S007 horizontal overflow, active reveal, permanently reachable plus and full native location hover; twenty-tab 480-point headless check passes. Native hover/scaling and pane resizing integration pending. |
-| F04.1 | In progress | A layout action splits the focused pane left/right or top/bottom | S008 planned; no completion claim. |
-| F04.2 | Not started | Dropping a tab on a pane edge creates a split and moves that tab into it |  |
-| F04.3 | In progress | Dividers resize neighboring panes | S008 planned: minimum-size clamps and visible refusal of impossible splits. |
-| F04.4 | In progress | Clicking a pane or using F6 changes keyboard focus | S008 planned: explicit focus indicator, pane-targeted tab/navigation/file commands. |
-| F04.5 | In progress | Closing a pane removes that pane's tabs without cancelling already-started filesystem operations | S008 adds close/collapse and window-owned explicit-launch retention; mutating-operation retention integrates later. |
-| F04.6 | In progress | Narrow panes drop lower-priority metadata columns before losing usable file names | S008 planned: responsive name-first table columns; preview divider remains a separate later control. |
+| F04.1 | Implemented | A layout action splits the focused pane left/right or top/bottom | S008 both axes/nesting create fresh destination tabs at source committed location with independent concurrent loading and minimum/offscreen guards. Native split interaction pending. |
+| F04.2 | In progress | Dropping a tab on a pane edge creates a split and moves that tab into it | S009 planned: visible tab-strip/edge targets and safe split-plus-move transactions. |
+| F04.3 | Implemented | Dividers resize neighboring panes | S008 recursive minimum clamps, resize/collapse and impossible-split refusal pass geometry/state checks. Window shrink scrolls the min-size workspace instead of overlapping controls. Native divider/DPI interaction pending. |
+| F04.4 | In progress | Clicking a pane or using F6 changes keyboard focus | S008 pointer-before-keys/F6/cyan-bordered focus label and focused tab/navigation/selection/file activation are implemented and tested. Captured-target finder routing integrates later; native keyboard/Narrator pending. |
+| F04.5 | In progress | Closing a pane removes that pane's tabs without cancelling already-started filesystem operations | S008 cancels only its read-only targets, removes tabs/collapses layout and retains window-owned captured launcher. Future mutating-operation drawer/jobs must survive origin-pane close. |
+| F04.6 | In progress | Narrow panes drop lower-priority metadata columns before losing usable file names | S008 drops Modified/Type/Size before Name goes below 200 points; plain type markers/native hover and shrink/focus-label checks pass. Separate preview divider integrates with previews; native resizing pending. |
 | F05.1 | Not started | Ctrl+O opens a focused input over the existing layout and captures the target pane/tab |  |
 | F05.2 | Not started | With an empty query, show recent locations, bookmarks, storage roots, and common places |  |
 | F05.3 | Not started | Accept an explicit absolute path as well as a path relative to the target tab |  |

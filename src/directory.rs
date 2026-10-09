@@ -1,9 +1,10 @@
 use std::{
+    collections::{HashMap, VecDeque},
     fs, io,
     path::{Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TrySendError},
     },
     thread,
@@ -303,13 +304,15 @@ impl DirectoryState {
 }
 
 struct Request {
+    cancelled: Arc<AtomicBool>,
     generation: u64,
     location: PathBuf,
 }
 
 #[derive(Default)]
 struct Mailbox {
-    latest: Option<Request>,
+    pending: VecDeque<(u64, Request)>,
+    targets: HashMap<u64, Arc<AtomicBool>>,
     shutdown: bool,
 }
 
@@ -333,7 +336,7 @@ impl DirectoryLoader {
         });
         let (sender, responses) = mpsc::sync_channel(QUEUED_RESPONSES);
         let loader = Self { shared, responses };
-        // Two workers, one coalesced pending location, and eight snapshot/status messages
+        // Two workers, one FIFO/coalesced pending location per live target, and eight messages
         // bound stale work/transport. Snapshots share entry allocations; enumeration
         // emits at most once per 50 ms after the first batch (plus the final snapshot).
         // A blocked OS call cannot be cancelled; both workers
@@ -350,15 +353,39 @@ impl DirectoryLoader {
         Ok(loader)
     }
 
+    #[cfg(test)]
     pub fn request(&self, location: PathBuf) -> u64 {
+        self.request_for(0, location)
+    }
+
+    pub fn request_for(&self, target: u64, location: PathBuf) -> u64 {
         let generation = self.shared.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let mut mailbox = self.shared.mailbox.lock().unwrap();
-        mailbox.latest = Some(Request {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        if let Some(old) = mailbox.targets.insert(target, cancelled.clone()) {
+            old.store(true, Ordering::SeqCst);
+        }
+        let request = Request {
             generation,
             location,
-        });
+            cancelled,
+        };
+        // Replacing a target keeps its place: a busy pane cannot starve neighbors.
+        if let Some((_, pending)) = mailbox.pending.iter_mut().find(|(id, _)| *id == target) {
+            *pending = request;
+        } else {
+            mailbox.pending.push_back((target, request));
+        }
         self.shared.wake.notify_one();
         generation
+    }
+
+    pub fn cancel(&self, target: u64) {
+        let mut mailbox = self.shared.mailbox.lock().unwrap();
+        if let Some(token) = mailbox.targets.remove(&target) {
+            token.store(true, Ordering::SeqCst);
+        }
+        mailbox.pending.retain(|(id, _)| *id != target);
     }
 
     #[cfg(test)]
@@ -380,8 +407,12 @@ impl DirectoryLoader {
 
 impl Drop for DirectoryLoader {
     fn drop(&mut self) {
-        self.shared.generation.fetch_add(1, Ordering::SeqCst);
-        self.shared.mailbox.lock().unwrap().shutdown = true;
+        let mut mailbox = self.shared.mailbox.lock().unwrap();
+        mailbox.shutdown = true;
+        for token in mailbox.targets.values() {
+            token.store(true, Ordering::SeqCst);
+        }
+        mailbox.pending.clear();
         self.shared.wake.notify_all();
         // Never join a worker stuck in an OS call on the UI thread. Workers own no mutations.
     }
@@ -391,15 +422,15 @@ fn worker(shared: Arc<Shared>, sender: SyncSender<Response>, repaint: Arc<dyn Fn
     loop {
         let request = {
             let mut mailbox = shared.mailbox.lock().unwrap();
-            while mailbox.latest.is_none() && !mailbox.shutdown {
+            while mailbox.pending.is_empty() && !mailbox.shutdown {
                 mailbox = shared.wake.wait(mailbox).unwrap();
             }
             if mailbox.shutdown {
                 return;
             }
-            mailbox.latest.take().unwrap()
+            mailbox.pending.pop_front().unwrap().1
         };
-        let cancelled = || shared.generation.load(Ordering::SeqCst) != request.generation;
+        let cancelled = || request.cancelled.load(Ordering::SeqCst);
         let mut entries = Vec::new();
         let mut metadata_errors = 0;
         let mut last_snapshot = Instant::now();
@@ -1199,5 +1230,52 @@ mod tests {
         assert!(matches!(state.status, Status::Ready));
         assert_eq!(state.raw_entries.len(), 1);
         assert_eq!(state.raw_entries[0].name, "only-b");
+    }
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::*;
+
+    #[test]
+    fn s008_enumeration_pending_is_target_coalesced_fifo_and_lifecycle_bounded() {
+        let shared = Arc::new(Shared {
+            mailbox: Mutex::new(Mailbox::default()),
+            wake: Condvar::new(),
+            generation: AtomicU64::new(0),
+        });
+        let (_sender, responses) = mpsc::sync_channel(QUEUED_RESPONSES);
+        let loader = DirectoryLoader { shared, responses };
+        let first = loader.request_for(10, PathBuf::from("first"));
+        let token = loader.shared.mailbox.lock().unwrap().targets[&10].clone();
+        loader.request_for(20, PathBuf::from("neighbor"));
+        for _ in 0..100 {
+            loader.request_for(10, PathBuf::from("latest"));
+        }
+        {
+            let mailbox = loader.shared.mailbox.lock().unwrap();
+            assert_eq!(mailbox.pending.len(), 2);
+            assert_eq!(mailbox.targets.len(), 2);
+            assert_eq!(
+                mailbox
+                    .pending
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .collect::<Vec<_>>(),
+                [10, 20]
+            );
+            assert_eq!(mailbox.pending[0].1.location, PathBuf::from("latest"));
+            assert!(mailbox.pending[0].1.generation > first);
+            assert!(token.load(Ordering::SeqCst));
+            assert!(!mailbox.targets[&20].load(Ordering::SeqCst));
+        }
+        loader.cancel(10);
+        let neighbor_token = loader.shared.mailbox.lock().unwrap().targets[&20].clone();
+        loader.cancel(20);
+        let mailbox = loader.shared.mailbox.lock().unwrap();
+        assert!(mailbox.pending.is_empty() && mailbox.targets.is_empty());
+        assert!(neighbor_token.load(Ordering::SeqCst));
+        assert_eq!(WORKERS, 2);
+        assert_eq!(QUEUED_RESPONSES, 8);
     }
 }

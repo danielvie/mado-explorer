@@ -69,7 +69,7 @@ impl Tab {
     }
 
     pub fn deactivate(&mut self) {
-        // Shared workers follow only the active context. Interrupted destinations
+        // Only the owning pane's active tab retains a worker target. Interrupted destinations
         // never commit later; returning refreshes the committed location.
         self.navigation.deactivate();
         self.requested_sort = None;

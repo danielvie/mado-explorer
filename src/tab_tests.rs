@@ -33,47 +33,71 @@ fn s007_new_close_cycle_and_final_home_use_fresh_non_reused_ids() {
     app.home = PathBuf::from("injected-home");
     app.navigate(PathBuf::from("pending-destination"), Intent::New);
     app.new_tab();
-    assert_eq!(app.tabs.len(), 2);
+    assert_eq!(app.panes[app.focused].tabs.len(), 2);
     assert_eq!(
-        app.tabs[app.active].navigation.current.location,
+        app.active_tab_mut().navigation.current.location,
         PathBuf::from("root")
     );
-    assert!(app.tabs[app.active].navigation.back.is_empty());
-    assert!(app.tabs[0].navigation.pending_location().is_none());
+    assert!(app.active_tab_mut().navigation.back.is_empty());
+    assert!(
+        app.panes[app.focused].tabs[0]
+            .navigation
+            .pending_location()
+            .is_none()
+    );
     assert!(!matches!(
-        app.tabs[0].navigation.current.status,
+        app.panes[app.focused].tabs[0].navigation.current.status,
         Status::Loading
     ));
-    let id = app.tabs[1].id;
+    let id = app.panes[app.focused].tabs[1].id;
     app.cycle_tab(false);
-    assert_eq!(app.active, 0);
+    assert_eq!(app.panes[app.focused].active, 0);
     app.cycle_tab(true);
-    assert_eq!(app.active, 1);
-    app.close_tab(app.active);
-    assert_eq!(app.active, 0);
+    assert_eq!(app.panes[app.focused].active, 1);
+    app.close_tab(app.panes[app.focused].active);
+    assert_eq!(app.panes[app.focused].active, 0);
     app.new_tab();
-    assert!(app.tabs[app.active].id.0 > id.0);
-    let key = app.tabs[app.active].navigation.key();
+    assert!(app.active_tab_mut().id.0 > id.0);
+    let key = app.active_tab_mut().navigation.key();
     app.close_tab(0);
-    assert_eq!(app.active, 0);
-    assert_eq!(app.tabs[0].navigation.key(), key); // inactive close does not reload
+    assert_eq!(app.panes[app.focused].active, 0);
+    assert_eq!(app.panes[app.focused].tabs[0].navigation.key(), key); // inactive close does not reload
     app.cycle_tab(false);
-    assert_eq!(app.tabs[0].navigation.key(), key); // single-tab cycle is a no-op
+    assert_eq!(app.panes[app.focused].tabs[0].navigation.key(), key); // single-tab cycle is a no-op
     app.close_tab(0);
-    assert_eq!(app.tabs.len(), 1);
-    assert_eq!(app.tabs[0].navigation.current.location, app.home);
-    assert!(app.tabs[0].id.0 > id.0);
-    assert!(app.tabs[0].navigation.back.is_empty() && app.tabs[0].navigation.forward.is_empty());
-    assert!(app.tabs[0].navigation.selection.paths.is_empty());
-    assert!(app.tabs[0].filter_text.is_empty());
-    assert_eq!(app.tabs[0].navigation.sort, sorting::Sort::default());
+    assert_eq!(app.panes[app.focused].tabs.len(), 1);
+    assert_eq!(
+        app.panes[app.focused].tabs[0].navigation.current.location,
+        app.home
+    );
+    assert!(app.panes[app.focused].tabs[0].id.0 > id.0);
+    assert!(
+        app.panes[app.focused].tabs[0].navigation.back.is_empty()
+            && app.panes[app.focused].tabs[0].navigation.forward.is_empty()
+    );
+    assert!(
+        app.panes[app.focused].tabs[0]
+            .navigation
+            .selection
+            .paths
+            .is_empty()
+    );
+    assert!(app.panes[app.focused].tabs[0].filter_text.is_empty());
+    assert_eq!(
+        app.panes[app.focused].tabs[0].navigation.sort,
+        sorting::Sort::default()
+    );
 }
 
 #[test]
 fn s007_return_restores_independent_history_filter_sort_selection_and_editors() {
     let mut app = filter_app();
-    let data = app.tabs[0].navigation.current.raw_entries.clone();
-    let tab = &mut app.tabs[0];
+    let data = app.panes[app.focused].tabs[0]
+        .navigation
+        .current
+        .raw_entries
+        .clone();
+    let tab = &mut app.panes[app.focused].tabs[0];
     tab.navigation.back.push(PathBuf::from("previous-a"));
     tab.navigation.forward.push(PathBuf::from("forward-a"));
     tab.filter_text = "al".into();
@@ -89,7 +113,7 @@ fn s007_return_restores_independent_history_filter_sort_selection_and_editors() 
     let anchor = tab.navigation.selection.anchor.clone();
     let sort = tab.navigation.sort;
     app.new_tab();
-    let tab = &mut app.tabs[1];
+    let tab = &mut app.panes[app.focused].tabs[1];
     assert!(tab.navigation.filter.is_empty());
     assert!(!tab.navigation.show_hidden_system);
     finish_tab(tab, data.clone());
@@ -100,8 +124,8 @@ fn s007_return_restores_independent_history_filter_sort_selection_and_editors() 
     tab.filter_text = "be".into();
     tab.navigation.sort.toggle(Column::Modified);
     app.activate_tab(0);
-    finish_tab(&mut app.tabs[0], data);
-    let tab = &app.tabs[0];
+    finish_tab(&mut app.panes[app.focused].tabs[0], data);
+    let tab = &app.panes[app.focused].tabs[0];
     assert_eq!(tab.navigation.back, [PathBuf::from("previous-a")]);
     assert_eq!(tab.navigation.forward, [PathBuf::from("forward-a")]);
     assert_eq!(tab.navigation.filter, "al");
@@ -114,9 +138,15 @@ fn s007_return_restores_independent_history_filter_sort_selection_and_editors() 
     assert_eq!(tab.location_text, "unsubmitted draft");
     assert_eq!(tab.location_error.as_deref(), Some("retained path error"));
     assert_eq!(tab.row_scroll_offset, 400.0);
-    assert_eq!(app.tabs[1].navigation.filter, "be");
-    assert_eq!(app.tabs[1].navigation.back, [PathBuf::from("previous-b")]);
-    assert_eq!(app.tabs[1].navigation.selection.active, second_active);
+    assert_eq!(app.panes[app.focused].tabs[1].navigation.filter, "be");
+    assert_eq!(
+        app.panes[app.focused].tabs[1].navigation.back,
+        [PathBuf::from("previous-b")]
+    );
+    assert_eq!(
+        app.panes[app.focused].tabs[1].navigation.selection.active,
+        second_active
+    );
 }
 
 #[cfg(windows)]
@@ -129,35 +159,44 @@ fn s007_native_selection_and_late_closed_tab_responses_cannot_cross_contexts() {
     Arc::get_mut(&mut Arc::get_mut(&mut rows).unwrap()[0])
         .unwrap()
         .path = native.clone();
-    finish_tab(&mut app.tabs[0], rows.clone());
-    app.tabs[0].navigation.selection.select_all(&rows);
+    finish_tab(&mut app.panes[app.focused].tabs[0], rows.clone());
+    app.panes[app.focused].tabs[0]
+        .navigation
+        .selection
+        .select_all(&rows);
     app.navigate(PathBuf::from("uncommitted"), Intent::New);
-    let stale = app.tabs[0].navigation.key();
+    let stale = app.panes[app.focused].tabs[0].navigation.key();
     app.new_tab();
-    let active_key = app.tabs[1].navigation.key();
+    let active_key = app.panes[app.focused].tabs[1].navigation.key();
     assert_ne!(active_key.generation, stale.generation);
     let late = || directory::Response {
         generation: stale.generation,
         update: directory::Update::Finished(Ok(PathBuf::from("late"))),
     };
-    assert!(!app.tabs[0].apply(late()));
-    assert!(!app.tabs[1].apply(late()));
+    assert!(!app.panes[app.focused].tabs[0].apply(late()));
+    assert!(!app.panes[app.focused].tabs[1].apply(late()));
     assert!(
-        !app.tabs[1]
+        !app.panes[app.focused].tabs[1]
             .navigation
             .apply_sorted(sorting::Sorted::for_test(stale, rows.clone()))
     );
-    assert!(app.tabs[1].navigation.back.is_empty());
+    assert!(app.panes[app.focused].tabs[1].navigation.back.is_empty());
     app.activate_tab(0);
-    finish_tab(&mut app.tabs[0], rows.clone());
+    finish_tab(&mut app.panes[app.focused].tabs[0], rows.clone());
     assert_eq!(
-        app.tabs[0].navigation.selection.active,
+        app.panes[app.focused].tabs[0].navigation.selection.active,
         Some(native.clone())
     );
-    assert!(app.tabs[0].navigation.selection.paths.contains(&native));
-    let closed_key = app.tabs[0].navigation.key();
+    assert!(
+        app.panes[app.focused].tabs[0]
+            .navigation
+            .selection
+            .paths
+            .contains(&native)
+    );
+    let closed_key = app.panes[app.focused].tabs[0].navigation.key();
     app.close_tab(0);
-    let tab = &mut app.tabs[0];
+    let tab = &mut app.panes[app.focused].tabs[0];
     assert!(!tab.apply(directory::Response {
         generation: closed_key.generation,
         update: directory::Update::Snapshot {
@@ -178,12 +217,12 @@ fn s007_saved_manual_scroll_waits_for_complete_fresh_projection_not_active_row()
     let mut app = filter_app();
     let names: Vec<_> = (0..200).map(|i| format!("row-{i:03}")).collect();
     let data = selection::tests::rows(&names.iter().map(String::as_str).collect::<Vec<_>>());
-    finish_tab(&mut app.tabs[0], data.clone());
-    app.tabs[0]
+    finish_tab(&mut app.panes[app.focused].tabs[0], data.clone());
+    app.panes[app.focused].tabs[0]
         .navigation
         .selection
         .click(&data, 0, false, false);
-    app.tabs[0].row_scroll_offset = 2200.0;
+    app.panes[app.focused].tabs[0].row_scroll_offset = 2200.0;
     let render = |app: &mut Explorer| {
         context
             .run_ui(
@@ -216,31 +255,31 @@ fn s007_saved_manual_scroll_waits_for_complete_fresh_projection_not_active_row()
             },
         )
         .drop_without_applying_deltas();
-    let saved = app.tabs[0].row_scroll_offset;
+    let saved = app.panes[app.focused].tabs[0].row_scroll_offset;
     assert!(saved > 2200.0);
     app.new_tab();
-    finish_tab(&mut app.tabs[1], data.clone());
-    app.tabs[1].row_scroll_offset = 800.0;
+    finish_tab(&mut app.panes[app.focused].tabs[1], data.clone());
+    app.panes[app.focused].tabs[1].row_scroll_offset = 800.0;
     render(&mut app);
-    assert!((app.tabs[1].row_scroll_offset - 800.0).abs() < 0.1);
+    assert!((app.panes[app.focused].tabs[1].row_scroll_offset - 800.0).abs() < 0.1);
     app.activate_tab(0);
     render(&mut app);
-    assert_eq!(app.tabs[0].row_scroll_offset, saved);
-    let generation = app.tabs[0].navigation.key().generation;
-    app.tabs[0].apply(directory::Response {
+    assert_eq!(app.panes[app.focused].tabs[0].row_scroll_offset, saved);
+    let generation = app.panes[app.focused].tabs[0].navigation.key().generation;
+    app.panes[app.focused].tabs[0].apply(directory::Response {
         generation,
         update: directory::Update::Snapshot {
             entries: Arc::new(vec![data[0].clone()]),
             metadata_errors: 0,
         },
     });
-    project_tab(&mut app.tabs[0]);
+    project_tab(&mut app.panes[app.focused].tabs[0]);
     render(&mut app);
-    assert_eq!(app.tabs[0].row_scroll_offset, saved);
-    finish_tab(&mut app.tabs[0], data.clone());
+    assert_eq!(app.panes[app.focused].tabs[0].row_scroll_offset, saved);
+    finish_tab(&mut app.panes[app.focused].tabs[0], data.clone());
     render(&mut app);
-    assert!((app.tabs[0].row_scroll_offset - saved).abs() < 0.1);
-    assert!(!app.tabs[0].restore_scroll);
+    assert!((app.panes[app.focused].tabs[0].row_scroll_offset - saved).abs() < 0.1);
+    assert!(!app.panes[app.focused].tabs[0].restore_scroll);
     context
         .run_ui(
             egui::RawInput {
@@ -253,7 +292,7 @@ fn s007_saved_manual_scroll_waits_for_complete_fresh_projection_not_active_row()
         )
         .drop_without_applying_deltas();
     assert!(
-        app.tabs[0].row_scroll_offset < 100.0,
+        app.panes[app.focused].tabs[0].row_scroll_offset < 100.0,
         "explicit keyboard movement still reveals the active row"
     );
 }
@@ -276,7 +315,9 @@ fn s007_shortcuts_obey_focused_editors_submission_and_exact_modifiers() {
             context
                 .run_ui(egui::RawInput::default(), |ui| {
                     app.toolbar(ui);
-                    ui.memory_mut(|m| m.request_focus(app.tabs[0].widget_id(editor)));
+                    ui.memory_mut(|m| {
+                        m.request_focus(app.panes[app.focused].tabs[0].widget_id(editor))
+                    });
                 })
                 .drop_without_applying_deltas();
             context
@@ -346,13 +387,16 @@ fn s007_same_location_ids_and_overflow_keep_active_tab_and_plus_reachable() {
         app.new_tab();
     }
     for name in ["location", "filter", "directory", "table-horizontal"] {
-        assert_ne!(app.tabs[0].widget_id(name), app.tabs[1].widget_id(name));
+        assert_ne!(
+            app.panes[app.focused].tabs[0].widget_id(name),
+            app.panes[app.focused].tabs[1].widget_id(name)
+        );
     }
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(480.0, 280.0));
     for backwards in [false, true] {
         app.cycle_tab(backwards);
-        app.tabs[app.active].navigation.current.location = PathBuf::from("active-overflow-tab");
-        app.reveal_active_tab = true;
+        app.active_tab_mut().navigation.current.location = PathBuf::from("active-overflow-tab");
+        app.panes[app.focused].reveal_active_tab = true;
         let mut active_rect = egui::Rect::NOTHING;
         let mut plus = egui::Pos2::ZERO;
         for _ in 0..6 {
@@ -383,7 +427,7 @@ fn s007_same_location_ids_and_overflow_keep_active_tab_and_plus_reachable() {
             screen.contains_rect(active_rect),
             "active label must be scrolled into view: {active_rect:?}"
         );
-        app.tabs[app.active].navigation.current.location = PathBuf::from("root");
+        app.active_tab_mut().navigation.current.location = PathBuf::from("root");
     }
 }
 
@@ -418,7 +462,7 @@ fn settle(app: &mut Explorer) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         app.poll_directory();
-        let nav = &app.tabs[app.active].navigation;
+        let nav = &app.active_tab_mut().navigation;
         if nav.pending_location().is_none()
             && matches!(nav.current.status, Status::Ready)
             && nav.projection_fresh()
@@ -444,9 +488,11 @@ fn s007_shared_background_refresh_reconciles_only_active_tab_and_final_fixture_h
     app.home = home.clone();
     app.navigate(fixture.0.clone(), Intent::Refresh);
     settle(&mut app);
-    app.tabs[0].navigation.set_filter("alpha".into());
+    app.panes[app.focused].tabs[0]
+        .navigation
+        .set_filter("alpha".into());
     settle(&mut app);
-    let tab = &mut app.tabs[0];
+    let tab = &mut app.panes[app.focused].tabs[0];
     tab.filter_text = "alpha".into();
     tab.navigation
         .selection
@@ -454,9 +500,11 @@ fn s007_shared_background_refresh_reconciles_only_active_tab_and_final_fixture_h
     let selected_a = tab.navigation.selection.paths.clone();
     app.new_tab();
     settle(&mut app);
-    app.tabs[1].navigation.set_filter("beta".into());
+    app.panes[app.focused].tabs[1]
+        .navigation
+        .set_filter("beta".into());
     settle(&mut app);
-    let tab = &mut app.tabs[1];
+    let tab = &mut app.panes[app.focused].tabs[1];
     tab.filter_text = "beta".into();
     tab.navigation
         .selection
@@ -466,10 +514,13 @@ fn s007_shared_background_refresh_reconciles_only_active_tab_and_final_fixture_h
     fs::write(fixture.0.join("beta-new.txt"), b"new").unwrap();
     app.activate_tab(0);
     settle(&mut app);
-    assert_eq!(app.tabs[0].navigation.selection.paths, selected_a);
-    assert_eq!(app.tabs[0].navigation.filter, "alpha");
+    assert_eq!(
+        app.panes[app.focused].tabs[0].navigation.selection.paths,
+        selected_a
+    );
+    assert_eq!(app.panes[app.focused].tabs[0].navigation.filter, "alpha");
     assert!(
-        app.tabs[1]
+        app.panes[app.focused].tabs[1]
             .navigation
             .selection
             .paths
@@ -478,23 +529,41 @@ fn s007_shared_background_refresh_reconciles_only_active_tab_and_final_fixture_h
     );
     app.activate_tab(1);
     settle(&mut app);
-    assert!(app.tabs[1].navigation.selection.paths.is_empty());
+    assert!(
+        app.panes[app.focused].tabs[1]
+            .navigation
+            .selection
+            .paths
+            .is_empty()
+    );
     assert_eq!(
-        app.tabs[1].navigation.current.entries[0].path,
+        app.panes[app.focused].tabs[1].navigation.current.entries[0].path,
         fixture.0.join("beta-new.txt")
     );
     app.navigate(home.clone(), Intent::New);
     settle(&mut app);
-    assert_eq!(app.tabs[1].navigation.back, [fixture.0.clone()]);
+    assert_eq!(
+        app.panes[app.focused].tabs[1].navigation.back,
+        [fixture.0.clone()]
+    );
     app.activate_tab(0);
     settle(&mut app);
-    assert!(app.tabs[0].navigation.back.is_empty());
+    assert!(app.panes[app.focused].tabs[0].navigation.back.is_empty());
     app.close_tab(1);
     app.close_tab(0);
     settle(&mut app);
-    assert_eq!(app.tabs[0].navigation.current.location, home);
-    assert!(app.tabs[0].navigation.current.raw_entries.is_empty());
-    assert!(app.tabs[0].navigation.filter.is_empty());
+    assert_eq!(
+        app.panes[app.focused].tabs[0].navigation.current.location,
+        home
+    );
+    assert!(
+        app.panes[app.focused].tabs[0]
+            .navigation
+            .current
+            .raw_entries
+            .is_empty()
+    );
+    assert!(app.panes[app.focused].tabs[0].navigation.filter.is_empty());
 }
 
 #[test]
@@ -536,12 +605,15 @@ fn s007_plus_and_close_controls_create_tabs_and_replace_the_final_tab() {
         }
     };
     click_label(&mut app, "+");
-    assert_eq!(app.tabs.len(), 2);
-    assert_eq!(app.active, 1);
+    assert_eq!(app.panes[app.focused].tabs.len(), 2);
+    assert_eq!(app.panes[app.focused].active, 1);
     click_label(&mut app, "x");
-    assert_eq!(app.tabs.len(), 1);
-    assert_eq!(app.active, 0);
+    assert_eq!(app.panes[app.focused].tabs.len(), 1);
+    assert_eq!(app.panes[app.focused].active, 0);
     click_label(&mut app, "x");
-    assert_eq!(app.tabs.len(), 1);
-    assert_eq!(app.tabs[0].navigation.current.location, app.home);
+    assert_eq!(app.panes[app.focused].tabs.len(), 1);
+    assert_eq!(
+        app.panes[app.focused].tabs[0].navigation.current.location,
+        app.home
+    );
 }

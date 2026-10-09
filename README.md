@@ -1,6 +1,6 @@
 # Mado Explorer
 
-S007: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S008: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
@@ -14,10 +14,12 @@ task design                      # opens the Excalidraw reference
 task design-test                 # validates the reference
 ```
 
-The single pane now has independent tabs. Use **+** or Ctrl+T to create a fresh
+Each pane has independent tabs. Use **+** or Ctrl+T to create a fresh
 tab at the active tab's **committed** location (not a still-opening destination).
 Use a tab's **x** button to close it, Ctrl+W to close the active tab, and
-Ctrl+Tab / Ctrl+Shift+Tab to cycle forward/backward. Closing the final tab creates
+Ctrl+Tab / Ctrl+Shift+Tab to cycle forward/backward in the focused pane. Closing
+the last tab of a non-final pane closes that pane and expands its sibling. Closing
+the final window tab creates
 a fresh tab at the user's home location; it does not close the window. Home is
 resolved once at startup, and missing/unreadable home contents use normal browsing
 error/retry handling. Tabs do not persist across restarts.
@@ -37,8 +39,29 @@ widget state even for two tabs at the same folder. The horizontal tab strip scro
 with overflow; new/close/cycle activation reveals the active tab, and the plus button
 stays outside overflow. Hover a tab to see its complete native location. Tab
 shortcuts use exact modifiers and are suspended while a path/filter editor owns the
-input, including its submission/exit frame. Drag reorder and split panes are not yet
-implemented.
+input, including its submission/exit frame. Drag reorder and cross-pane tab moves
+are not yet implemented.
+
+Use **Split left/right** or **Split top/bottom** for the focused pane. The new pane
+starts with a fresh tab at the source tab's committed location, while the source
+continues loading/browsing independently. Click anywhere in a pane or press **F6**
+to focus it; cyan, a thicker border and an explicit Focused pane label identify it.
+Pointer focus is resolved before keyboard dispatch. Navigation, tab shortcuts,
+selection and activation target only the focused pane. Focus changes do not refresh,
+cancel or overwrite another pane's state. **Close pane** removes all its tabs and
+cancels their read-only requests; a captured file launch remains window-owned.
+Closing the final pane replaces its tabs with one fresh home tab.
+
+Drag a divider to resize both neighbors. Recursive subtree minimums clamp dividers;
+each pane is at least 320 x 300 logical points. Splits that cannot fit in a fully
+visible source pane are refused with feedback. If the window shrinks below a nested
+layout's minimum, the workspace scrolls rather than overlapping controls; F6 reveals
+the focused pane. Short panes separately scroll their controls/status to reach the
+table, which retains its tab-owned row scroll. Narrow tables drop Modified, then
+Type, then Size before sacrificing a 200-point Name column. When Type is absent,
+plain [D]/[F]/[L]/[O]/[?] markers distinguish folders/files/links/other/unknown entries;
+full metadata/path remain available on hover. No preview or preview divider exists
+yet, and pane dividers do not share a control with any future preview divider.
 
 Enter a folder path and press Enter/Go, double-click a folder row (or make it the
 active row and press Enter), or use Back, Forward, Up and the breadcrumb buttons.
@@ -131,7 +154,7 @@ introduced here.
 Pending destination rows cannot be selected or activated until navigation commits
 and its projection is fresh. Failed destinations preserve the committed selection;
 successful navigation to another location clears it. Selection is scoped to its tab;
-other tabs do not overwrite it. Pane isolation follows with split panes.
+other tabs and panes do not overwrite it.
 
 Identity lookup for keyboard movement and range endpoints is intentionally O(n) in
 the displayed entry count; Ctrl+A/range updates and successful-refresh reconciliation
@@ -140,7 +163,7 @@ not been performance-verified. If measured input latency exceeds its budget, bui
 native path-to-index projection on the sorting worker and publish it with the existing
 generation/revision key, rather than retaining row indices across sorting.
 
-No previews, settings, split panes or mutation commands are implemented.
+No previews, settings, folder finder or mutation commands are implemented.
 The explorer itself remains read-only, but **externally launched applications may
 edit their files or execute code**; open only files you intend to open.
 Hidden and system entries are **hidden by default**. The explicit **Show
@@ -226,15 +249,28 @@ the explorer does not wait on that call; an unfinished worker is detached and it
 resources are released on return or process teardown. There is no queued launch to
 run after closing, and external applications are not terminated.
 
-All tabs share the window's existing active-context services: enumeration and
-metadata reads run on two background workers, with one coalesced
-pending location and a bounded eight-message snapshot/status queue. Enumeration
-still uses batches of at most 256 entries; after the first batch, cumulative
-snapshots are published at most every 50 ms plus the final snapshot. Snapshots
-share entry allocations, but each snapshot holds its own vector of entry handles.
-A separate projection/sorting worker has one active projection, one coalesced pending
-request and one result slot. Query normalization, name matching, entry-vector building,
-sorting and visible-path-set building happen on that worker, not in UI update.
+All panes share fixed window-owned services: enumeration/metadata reads run on
+**two workers**, projection/filter/sorting runs on **one worker**, and there is at
+most **one explicit file-launch worker**. No per-pane or per-tab thread pools exist.
+Each visible active tab has one enumeration cancellation token and at most one
+coalesced pending request. Pending targets are FIFO; updating a queued target keeps
+its place rather than evicting another pane. Switching tabs/closing panes cancels
+only those targets, removes their pending requests and releases their target slots.
+The enumeration snapshot/status transport is bounded to **eight messages window-wide**,
+and UI catch-up drains at most eight per frame, including stale responses.
+Enumeration uses batches of at most 256 entries; after the first batch, cumulative
+snapshots are published at most every 50 ms plus the final snapshot. Snapshots share
+entry allocations, but each snapshot holds its own vector of entry handles.
+
+The projection worker processes targets fairly from a FIFO with at most one
+coalesced pending request and one result per visible active tab. Publishing a result
+checks that target's latest key; another pane's request does not cancel it. Switching
+or closing removes that target's queued request, result and latest key. A running
+projection may finish, but cannot publish after cancellation. UI catch-up takes at
+most the pane count of results per frame. Query normalization, name matching,
+entry-vector building, sorting and visible-path-set building happen on that worker,
+not in UI update. These transport bounds scale only with live active pane targets,
+not with the number of inactive tabs or the number of input events.
 Projection results must match the visible listing's generation, data/completion
 revision, query revision, visibility choice/revision and sort choice. Returning
 quickly to the same query text still creates a newer query revision. Completion increments data revision so a
@@ -246,16 +282,17 @@ been made.
 
 Every activation/refresh receives a new window-wide enumeration generation. Combined
 with the existing data/query/visibility/sort guards, this rejects inactive/closed-tab
-results even when two tabs share a folder. Only the active tab receives worker results;
+results even when two tabs share a folder. Responses route by unique generation to
+the owning pane's active tab, never to whichever pane happens to be focused;
 no per-tab workers are created. Fonts and the captured-path launcher stay window-owned;
 a launch completion cannot change the active tab's navigation or selection.
 
 Stale enumeration is cancelled between OS calls and rejected by navigation.
 OS calls themselves cannot be interrupted. If both enumeration workers are stuck
-on unavailable locations, a new listing waits, but input remains responsive.
+on unavailable locations, new listings wait in the target-aware pending FIFO, but input remains responsive.
 The upgrade path is cancellable platform I/O if measured workloads require it.
-A running projection is not interrupted, but obsolete results are discarded and only
-the latest pending request is processed next. If measured filter latency exceeds its
+A running projection is not interrupted, but obsolete results are discarded and
+the next queued target is processed with its latest request. If measured filter latency exceeds its
 budget, add cancellation checkpoints and worker-side normalized-name caching; measure
 first rather than changing the matching model or ranking.
 
@@ -342,6 +379,21 @@ Use only disposable folders containing child folders and small files:
     modify home entries; use only generated fixture entries for changes. This native
     interactive procedure is pending, not claimed from headless checks.
 
+13. Split a loaded fixture left/right, then split one pane top/bottom. Give panes
+    independent tabs, locations, filters and selections. Click blank pane space or
+    controls and use F6, Ctrl+T/W/Tab, Alt navigation, F5, arrows/Ctrl+A and Enter:
+    only the focused pane should change, including a click and shortcut in one frame.
+    Check the cyan border plus Focused pane label. Resize both dividers to their
+    limits, try a split too small to fit, then shrink the window: controls remain
+    reachable through scrolling and F6 reveals offscreen panes. Check narrow Name
+    columns and [D]/[F]/[L] markers. Close a pane with several tabs, and close the
+    last tab of a non-final pane: siblings expand without refreshing or losing
+    selection. Close the final pane/tab to get home. During a delayed explicit
+    launch, close its source pane; captured-path status remains window-owned and
+    cannot navigate/select in another pane. Do not open unknown documents or modify
+    personal/home entries. Native interaction/DPI/Narrator/provider checks remain
+    pending; the headless/background checks do not establish those results.
+
 GUI appearance/interaction, display scaling and Windows Narrator checks still
 require manual verification. S001's process-level startup/close smoke created the
 native window and exited with code 0; it did not verify displayed states. S002
@@ -380,3 +432,11 @@ An actual shared-worker disposable fixture confirms per-tab refresh/reconciliati
 an injected final-home location, without changing the user's real home. The injected
 launch-result regression also closes its original tab before completion; no documents
 are executed. Native interactive tabs, hover/scaling and Narrator checks remain pending.
+
+S008 adds a small binary split tree and focused state/headless/background regressions
+for both axes/nesting, divider clamps/impossible splits, focus-before-keyboard routing,
+independent tab/selection/navigation state, pane collapse/final-home, narrow columns,
+shrink/F6 accessibility, simultaneous disposable pane loads and repeated projections,
+closed/stale target rejection, per-target FIFO/coalescing/lifecycle bounds and captured
+launch completion after pane close. The worker counts remain fixed. Mutating-operation
+retention, previews, tab dragging, folder finder and persistence are later slices.

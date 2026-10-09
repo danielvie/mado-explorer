@@ -1,7 +1,7 @@
 use crate::directory::{Entry, EntryKind};
 use std::{
     cmp::Ordering,
-    collections::HashSet,
+    collections::{HashMap, HashSet, VecDeque},
     io,
     path::PathBuf,
     sync::{Arc, Condvar, Mutex},
@@ -105,6 +105,7 @@ impl Sorted {
 #[cfg(test)]
 pub(crate) fn project_for_test(key: Key, entries: Arc<Vec<Arc<Entry>>>, query: &str) -> Sorted {
     project(Request {
+        target: 0,
         key,
         entries,
         query: query.into(),
@@ -112,6 +113,7 @@ pub(crate) fn project_for_test(key: Key, entries: Arc<Vec<Arc<Entry>>>, query: &
 }
 
 struct Request {
+    target: u64,
     key: Key,
     entries: Arc<Vec<Arc<Entry>>>,
     query: String,
@@ -154,9 +156,9 @@ fn project(request: Request) -> Sorted {
 
 #[derive(Default)]
 struct Mailbox {
-    request: Option<Request>,
-    result: Option<Sorted>,
-    latest: Option<Key>,
+    requests: VecDeque<Request>,
+    results: VecDeque<(u64, Sorted)>,
+    latest: HashMap<u64, Key>,
     shutdown: bool,
 }
 
@@ -175,21 +177,23 @@ impl Sorter {
                 loop {
                     let request = {
                         let mut mailbox = lock.lock().unwrap();
-                        while mailbox.request.is_none() && !mailbox.shutdown {
+                        while mailbox.requests.is_empty() && !mailbox.shutdown {
                             mailbox = wake.wait(mailbox).unwrap();
                         }
                         if mailbox.shutdown {
                             return;
                         }
-                        mailbox.request.take().unwrap()
+                        mailbox.requests.pop_front().unwrap()
                     };
+                    let target = request.target;
                     let sorted = project(request);
                     let mut mailbox = lock.lock().unwrap();
                     if mailbox.shutdown {
                         return;
                     }
-                    if mailbox.latest == Some(sorted.key) {
-                        mailbox.result = Some(sorted);
+                    if mailbox.latest.get(&target) == Some(&sorted.key) {
+                        mailbox.results.retain(|(id, _)| *id != target);
+                        mailbox.results.push_back((target, sorted));
                         repaint();
                     }
                 }
@@ -197,21 +201,45 @@ impl Sorter {
         Ok(Self { shared })
     }
 
+    #[cfg(test)]
     pub fn request(&self, key: Key, entries: Arc<Vec<Arc<Entry>>>, query: String) {
+        self.request_for(0, key, entries, query);
+    }
+
+    pub fn request_for(&self, target: u64, key: Key, entries: Arc<Vec<Arc<Entry>>>, query: String) {
         let (lock, wake) = &*self.shared;
         let mut mailbox = lock.lock().unwrap();
-        mailbox.latest = Some(key);
-        mailbox.request = Some(Request {
+        mailbox.latest.insert(target, key);
+        let request = Request {
+            target,
             key,
             entries,
             query,
-        });
-        mailbox.result = None;
+        };
+        if let Some(pending) = mailbox.requests.iter_mut().find(|r| r.target == target) {
+            *pending = request;
+        } else {
+            mailbox.requests.push_back(request);
+        }
+        mailbox.results.retain(|(id, _)| *id != target);
         wake.notify_one();
     }
 
+    pub fn cancel(&self, target: u64) {
+        let mut mailbox = self.shared.0.lock().unwrap();
+        mailbox.latest.remove(&target);
+        mailbox.requests.retain(|r| r.target != target);
+        mailbox.results.retain(|(id, _)| *id != target);
+    }
+
     pub fn take(&self) -> Option<Sorted> {
-        self.shared.0.lock().unwrap().result.take()
+        self.shared
+            .0
+            .lock()
+            .unwrap()
+            .results
+            .pop_front()
+            .map(|(_, sorted)| sorted)
     }
 }
 
@@ -478,5 +506,95 @@ mod tests {
         assert!(!sort.descending);
         sort.toggle(Column::Size);
         assert!(sort.descending);
+    }
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::*;
+
+    #[test]
+    fn s008_projection_pending_and_results_are_bounded_per_target_not_global() {
+        let sorter = Sorter {
+            shared: Arc::new((Mutex::new(Mailbox::default()), Condvar::new())),
+        };
+        let key = Key {
+            generation: 1,
+            revision: 0,
+            sort: Sort::default(),
+            query_revision: 0,
+            show_hidden_system: false,
+            visibility_revision: 0,
+        };
+        let rows = Arc::new(Vec::new());
+        sorter.request_for(10, key, rows.clone(), "first".into());
+        sorter.request_for(
+            20,
+            Key {
+                generation: 2,
+                ..key
+            },
+            rows.clone(),
+            "neighbor".into(),
+        );
+        for revision in 1..100 {
+            sorter.request_for(
+                10,
+                Key {
+                    query_revision: revision,
+                    ..key
+                },
+                rows.clone(),
+                "latest".into(),
+            );
+        }
+        {
+            let mut mailbox = sorter.shared.0.lock().unwrap();
+            assert_eq!(mailbox.requests.len(), 2);
+            assert_eq!(mailbox.latest.len(), 2);
+            assert_eq!(
+                mailbox
+                    .requests
+                    .iter()
+                    .map(|r| r.target)
+                    .collect::<Vec<_>>(),
+                [10, 20]
+            );
+            assert_eq!(mailbox.requests[0].query, "latest");
+            assert_eq!(mailbox.latest[&20].generation, 2);
+            // Each target may retain one result while a neighbor queues newer work.
+            mailbox.results.push_back((
+                20,
+                Sorted::new(
+                    Key {
+                        generation: 2,
+                        ..key
+                    },
+                    rows.clone(),
+                ),
+            ));
+        }
+        sorter.request_for(
+            10,
+            Key {
+                query_revision: 100,
+                ..key
+            },
+            rows,
+            String::new(),
+        );
+        assert_eq!(sorter.take().unwrap().key.generation, 2);
+        sorter.cancel(10);
+        {
+            let mailbox = sorter.shared.0.lock().unwrap();
+            assert_eq!(mailbox.requests.len(), 1);
+            assert!(!mailbox.latest.contains_key(&10));
+            assert!(mailbox.latest.contains_key(&20));
+        }
+        sorter.cancel(20);
+        let mailbox = sorter.shared.0.lock().unwrap();
+        assert!(
+            mailbox.requests.is_empty() && mailbox.results.is_empty() && mailbox.latest.is_empty()
+        );
     }
 }
