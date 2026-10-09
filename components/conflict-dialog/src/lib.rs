@@ -147,6 +147,17 @@ struct Pending {
     apply: bool,
     first_frame: Option<u64>,
     focus_set: bool,
+    pointer: PointerEpoch,
+    pointer_frame: Option<u64>,
+    pointer_click: bool,
+    stale_pointer: bool,
+}
+
+#[derive(PartialEq, Eq)]
+enum PointerEpoch {
+    Blocked,
+    Ready,
+    Pressed,
 }
 
 struct Policy {
@@ -164,7 +175,8 @@ pub struct DialogOutput {
 /// One controller per operation, owned by the window rather than a tab or pane.
 /// Retains at most one request and one exact-type policy; no response queue.
 /// Only one conflict presenter may be drawn in a window's egui Context at a time.
-/// Sequential requests and operation controllers reuse that window's modal area.
+/// Sequential requests and controllers reuse a fixed presentation namespace.
+/// Immutable request IDs authorize decisions, never persistent egui identities.
 pub struct ConflictDialog {
     operation: OperationId,
     latest: Option<ConflictId>,
@@ -224,6 +236,10 @@ impl ConflictDialog {
             apply: false,
             first_frame: None,
             focus_set: false,
+            pointer: PointerEpoch::Blocked,
+            pointer_frame: None,
+            pointer_click: false,
+            stale_pointer: false,
         });
         Ok(None)
     }
@@ -282,13 +298,62 @@ impl ConflictDialog {
         self.input_frame = Some(frame);
         let request = &pending.request;
         let fresh = *pending.first_frame.get_or_insert(frame) == frame;
-        // egui retains Area state and layer order after hiding. One area per window,
-        // including across controller recreation; child IDs still isolate requests.
+        // egui retains hidden Areas and focus IDs. One finite namespace per window;
+        // the Pending epoch below, not GUI identity, refuses inherited gestures.
         let id = Id::new("mado-conflict-presenter");
         let modal = egui::Modal::new(id).show(ctx, |ui| {
-            ui.push_id((self.operation, request.conflict), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().id(id.with("controls")), |ui| {
                 let top = ui.memory(|memory| memory.top_modal_layer() == Some(ui.layer_id()));
-                let (escape, enter, space, key_activation) = if top {
+                if top && fresh {
+                    // begin_pass already read Tab/arrows. Stop opening-frame focus
+                    // navigation before widgets can schedule next-frame inherited focus.
+                    ui.memory_mut(|memory| memory.move_focus(egui::FocusDirection::None));
+                }
+                // Process a pointer batch once, including during egui layout retries.
+                // A blocked old/opening-frame press stays blocked until release, even
+                // if that release arrives many frames after the new request is armed.
+                if pending.pointer_frame != Some(frame) {
+                    pending.pointer_frame = Some(frame);
+                    pending.pointer_click = false;
+                    pending.stale_pointer = false;
+                    let armed = !fresh && top && pending.focus_set;
+                    if !armed {
+                        pending.pointer = PointerEpoch::Blocked;
+                    }
+                    ui.input(|input| {
+                        for event in &input.events {
+                            if let egui::Event::PointerButton {
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                ..
+                            } = event
+                            {
+                                if *pressed {
+                                    if armed && pending.pointer == PointerEpoch::Ready {
+                                        pending.pointer = PointerEpoch::Pressed;
+                                    } else {
+                                        pending.pointer = PointerEpoch::Blocked;
+                                        pending.stale_pointer = true;
+                                    }
+                                } else {
+                                    let valid = armed && pending.pointer == PointerEpoch::Pressed;
+                                    pending.pointer_click |= valid;
+                                    pending.stale_pointer |= !valid;
+                                    pending.pointer = PointerEpoch::Ready;
+                                }
+                            }
+                        }
+                        if pending.pointer == PointerEpoch::Blocked {
+                            pending.stale_pointer |= input.pointer.primary_down();
+                            if !input.pointer.primary_down() {
+                                pending.pointer = PointerEpoch::Ready;
+                            }
+                        }
+                    });
+                    // Refuse ambiguous batches containing an inherited release too.
+                    pending.pointer_click &= !pending.stale_pointer;
+                }
+                let (escape, enter, space) = if top {
                     ui.input_mut(|input| {
                         let pressed = |wanted| {
                             input.events.iter().any(|event| matches!(event,
@@ -300,7 +365,6 @@ impl ConflictDialog {
                             pressed(Key::Escape),
                             pressed(Key::Enter),
                             pressed(Key::Space),
-                            input.key_pressed(Key::Enter) || input.key_pressed(Key::Space),
                         );
                         // Consume repeats and modified variants too, preventing native button
                         // activation from a held key belonging to a previous request.
@@ -316,7 +380,7 @@ impl ConflictDialog {
                         keys
                     })
                 } else {
-                    (false, false, false, false)
+                    (false, false, false)
                 };
                 ui.set_width((ctx.content_rect().width() - 48.0).clamp(160.0, 520.0));
                 ui.heading("Destination conflict");
@@ -332,32 +396,35 @@ impl ConflictDialog {
                 if !request.kind.allows_replace() {
                     ui.label("Replace is unavailable. Folders are never merged or replaced.");
                 }
-                let previous_apply = pending.apply;
-                let checkbox = ui.checkbox(
-                    &mut pending.apply,
-                    "Apply to remaining conflicts of this type in this operation",
-                );
-                if key_activation {
-                    // egui may already have cached a keyboard click before consumption.
-                    pending.apply = previous_apply;
-                }
+                let mut displayed_apply = pending.apply;
+                let checkbox = ui
+                    .scope_builder(egui::UiBuilder::new().id(id.with("apply")), |ui| {
+                        ui.checkbox(
+                            &mut displayed_apply,
+                            "Apply to remaining conflicts of this type in this operation",
+                        )
+                    })
+                    .inner;
                 ui.label(
                     "Enter: Skip. Escape: Cancel operation. Tab then Space: choose an action.",
                 );
                 let buttons = ui
-                    .horizontal_wrapped(|ui| {
-                        [
-                            ui.button("Skip"),
-                            ui.button("Keep both"),
-                            ui.add_enabled(
-                                request.kind.allows_replace(),
-                                egui::Button::new("Replace"),
-                            ),
-                            ui.button("Cancel"),
-                        ]
+                    .scope_builder(egui::UiBuilder::new().id(id.with("actions")), |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            [
+                                ui.button("Skip"),
+                                ui.button("Keep both"),
+                                ui.add_enabled(
+                                    request.kind.allows_replace(),
+                                    egui::Button::new("Replace"),
+                                ),
+                                ui.button("Cancel"),
+                            ]
+                        })
+                        .inner
                     })
                     .inner;
-                if top && !pending.focus_set {
+                if top && (!pending.focus_set || fresh || pending.stale_pointer) {
                     // egui's modal layer becomes current after its initial sizing pass.
                     buttons[0].request_focus();
                     pending.focus_set = true;
@@ -365,7 +432,13 @@ impl ConflictDialog {
                 if fresh {
                     // A new request cannot inherit a prior checkbox activation.
                     pending.apply = false;
-                } else if space && checkbox.has_focus() {
+                } else if top
+                    && ((pending.pointer_click
+                        && checkbox.clicked_by(egui::PointerButton::Primary))
+                        || (space && checkbox.has_focus()))
+                {
+                    // Ignore egui's cached keyboard/pointer toggle. Only this epoch
+                    // can change the operation's apply policy.
                     pending.apply = !pending.apply;
                 }
                 let choices = [
@@ -383,7 +456,8 @@ impl ConflictDialog {
                 } else {
                     buttons.iter().zip(choices).find_map(|(button, choice)| {
                         (button.enabled()
-                            && ((!key_activation && button.clicked())
+                            && ((pending.pointer_click
+                                && button.clicked_by(egui::PointerButton::Primary))
                                 || (space && button.has_focus())))
                         .then_some(choice)
                     })

@@ -1,6 +1,41 @@
 # P08 conflict dialog handoff
 
-## S013-R02 retained modal state correction
+## S013-R03 bounded presentation IDs and request-epoch input
+
+- Baseline `d548665cdb85208f14312e1e76517a196242d228`, branch `lane/conflict-dialog`, checkout `C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog`. This component-only commit is the new terminal candidate, not an approved P08. Resolve its SHA with the candidate command below.
+- Exclusive changed paths: `components/conflict-dialog/src/lib.rs`, `components/conflict-dialog/tests/retained_areas/mod.rs`, and this document. Original `src/tests.rs` and all sixteen behavior checks remain unchanged. Supervisor-owned dirty `PROGRESS.md` remains unchanged and unstaged. No root, sibling, manifest, lock, dependency, Taskfile, executor, filesystem, clipboard, native probe or enablement changes.
+- R02 bounded only the Modal Area. Its request-specific child IDs still leaked retained tooltip Areas and focus-cache entries. Installed egui `0.36.2` evidence under `C:/Users/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egui-0.36.2/src/`: `containers/tooltip.rs:133-143,210-212` derives tooltip IDs from widget IDs; `containers/popup.rs:580-604` creates their Areas; `memory/mod.rs:1236-1241,1358-1405` retains hidden Areas/layer order. `memory/mod.rs:647-658` inserts interested focus IDs, while `732-739` prunes only during cardinal navigation. Pointer/Enter usage did not prune the old request IDs.
+- Authorized API/mechanism tradeoff: one fixed Modal/body/checkbox/action namespace per window Context, shared across requests and operation controllers. `UiBuilder::id` provides explicit parent-independent child scopes. Path widget IDs and both tooltip IDs stay fixed too. Operation/conflict IDs remain immutable request DATA and still pass through `decide`'s current-ID/type check. No per-operation IDs, ring, global-memory clearing, forced cardinal navigation or dependency patch. Draw exactly one conflict presenter per window, as before.
+- Each new `Pending` request starts a blocked primary-pointer epoch. It becomes ready only after the opening frame and an observed up state. Only a new primary press while armed can authorize a later release. An old or opening-frame press remains blocked through later empty frames until release. Invalid release batches cannot answer or change apply policy and restore Skip focus. Mixed batches containing an inherited release are conservatively refused. Pointer events are processed once per frame during layout retries.
+- Fresh frames refuse all decisions and reset checkbox/default Skip focus. Opening-frame Tab/arrow navigation is stopped with `move_focus(None)` only while this presenter is the top modal. This cancels current modal navigation before egui can schedule next-frame inherited focus; it neither prunes caches nor navigates another window/control. Later Tab/Shift+Tab remains native. Enter always skips, focused Space works, Escape cancels, and modified/repeated decision keys remain refused. Installed `input_state/mod.rs:401-412` marks already-held key presses as repeats before presentation. Native cached keyboard clicks never authorize a choice; pointer authorization uses `clicked_by(Primary)`. The checkbox's native temporary toggle never changes operation policy without the same epoch checks. Answer-frame ownership and one-shot immutable response routing are unchanged.
+
+### Regression evidence
+
+- Replaced R02's mechanism-only assertions requiring different widget IDs with bounded ID cardinality plus stronger input checks. Requiring new IDs was the leaking mechanism, not a product requirement. No original behavior test or failed behavior assertion was deleted or weakened.
+- Actual hovered-tooltip test renders both unique full source/destination paths for every one of 384 requests across twelve controllers, alternating file/folder conflicts. After hiding each request for two frames, it compares retained `Memory::layer_ids` and `AreaState::load` sets. Both tooltip Areas remain present but the set stays equal to the first request. This is not a visible-layer count.
+- Focus test traverses 768 requests across twelve controllers with actual pointer clicks and Enter, collecting the five action/checkbox response IDs on every request. The own focusable control set remains exactly five without cardinal navigation or cache clearing. Installed focus-cache insertion consumes those same response IDs. It does not claim access to egui's private cache map or a process-memory benchmark.
+- Delayed-release test presses each of the four actions and the checkbox, replaces the request or controller, renders three fresh/idle frames, then releases. No decision, checkbox change or inherited Replace/checkbox focus occurs. A new intentional click works for all controls, and subsequent focused Space works. Opening-frame pointer/Space, held-key/default-focus, and deferred Tab/Shift+Tab focus have separate checks. A forced two-pass pointer-checkbox frame toggles exactly once and preserves apply policy.
+- RED before production changes: `cargo test --locked --offline --lib retained_areas --target-dir C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog/components/conflict-dialog/target` exited 101. Four tests failed: tooltip retained set grew at operation 1/conflict 2, focusable set grew to ten, delayed old release lost default Skip focus, and opening pointer/Space failed to produce the later intentional Skip. Sixteen original tests were filtered, not changed.
+- While inspecting fixed-ID focus, added `opening_focus_navigation_cannot_schedule_inherited_focus`. Its focused run exited 101 at the next-frame Skip-focus assertion before the navigation guard. One focused correction passed. The two-pass checkbox check passed on its first run and is not claimed as red evidence.
+- Initial test compile used the unavailable `Context::style_mut`. Read installed API and corrected the fixture to `global_style_mut` before recording the behavioral red run. No source behavior/assertion workaround or tool/model fallback.
+
+### Final validation
+
+Commands run from `C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog/components/conflict-dialog`, using the existing component target:
+
+```text
+cargo fmt
+cargo fmt --check
+cargo check --locked --offline --all-targets --target-dir C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog/components/conflict-dialog/target
+cargo test --locked --offline --lib retained_areas --target-dir C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog/components/conflict-dialog/target
+cargo test --locked --offline --all-targets --target-dir C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog/components/conflict-dialog/target
+```
+
+Final run: formatting and locked offline all-target compile passed. Focused suite: six passed, sixteen filtered, zero failed/ignored. All-target suite: twenty-two passed, zero failed/ignored, example test target also passed. `git diff --check` and `git diff --cached --check` passed from the explicit checkout root. Complete owned delta inspected; `git diff -- components/conflict-dialog/src/tests.rs` is empty. Root acceptance remains supervisor-owned. No native GUI, scaling, Narrator, filesystem or clipboard probe ran. F10.4/F10.6 remain partial decision-control preparation. Fresh independent review, parent serial integration/validation, checkpoint gates and supervisor approval are required before production enablement.
+
+## S013-R02 retained modal state correction, historical
+
+R03 above supersedes R02's request-specific child identity contract. The prior checks/results below describe the original correction, not current acceptance.
 
 - Fix baseline: `83251c0dee036dc5f5efecb9a9e07bac2930af48`, exact checkout and branch below. The frozen correction is the component-only commit containing this section; resolve with the candidate command below.
 - Write boundary for this correction: `components/conflict-dialog/src/lib.rs`, `components/conflict-dialog/tests/**`, and this document only. Existing `src/tests.rs` and its sixteen assertions/tests are unchanged. Supervisor-owned dirty `PROGRESS.md` remains untouched and unstaged. No manifest, lock, Taskfile, root/main/sibling source, executor, filesystem, clipboard or enablement changes.
@@ -60,12 +95,12 @@ The standalone library is `mado_conflict_dialog`, with egui exactly `0.36.2`, ma
 
 - Skip, Keep both, Replace, Cancel are actual buttons with tested pointer activation. Replace is visibly disabled for folders, mixed types, and Other entries, and also refused by the controller.
 - Enter always chooses Skip, even with Replace focused. Tab/Shift+Tab use egui focus; Space activates the focused action or toggles the focused checkbox. Escape explicitly emits Cancel for this operation. Default focus is Skip once egui completes its initial modal sizing pass.
-- Opening-frame button/Enter/Space/Escape activations and held/repeated or modified decision keys cannot answer a new request. After the first frame, Escape is an explicit non-destructive Cancel. Widgets use operation/request-scoped egui identities within one window-scoped modal Area. Keyboard click flags cached by egui are suppressed when processing decision keys.
+- Opening-frame button/Enter/Space/Escape activations and held/repeated or modified decision keys cannot answer a new request. After the first frame, Escape is an explicit non-destructive Cancel. Widgets use fixed bounded egui presentation identities within one window-scoped modal Area. Per-request input epochs prevent inherited gestures; immutable operation/conflict IDs route decisions only. Keyboard click flags cached by egui are suppressed when processing decision keys.
 - Paths use visually truncated, non-selectable labels with full display text on hover. Only display uses `to_string_lossy`; requests and responses preserve `PathBuf`. Tests retain Unicode/long paths, verbatim paths, and unpaired UTF-16. Hover output contains both complete supplied display paths.
-- One focused built-in suite has 16 passing headless tests. It covers the controls above, one-shot immutable responses, stale/duplicate and wrong-operation refusal, pending replacement, independent operations, exact-compatible policies, incompatible directory/type conflicts, Cancel/finish cleanup, checkbox reset, held keys, and multi-pass input ownership without response replay.
+- The current built-in suite has 22 passing headless tests: sixteen unchanged behavior checks and six bounded-state/input regressions. It covers the controls above, one-shot immutable responses, stale/duplicate and wrong-operation refusal, pending replacement, independent operations, exact-compatible policies, incompatible directory/type conflicts, Cancel/finish cleanup, checkbox reset, held keys, and multi-pass input ownership without response replay.
 - Generated fixtures are synthetic paths. No fixture files are opened, created, renamed, transferred, or removed.
 
-## Validation commands and outcomes
+## Original P08 validation commands and outcomes
 
 All commands ran with explicit cwd. Build output stayed inside the component's `target` directory. No root suite or Clippy ran.
 
