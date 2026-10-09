@@ -12,10 +12,16 @@ tasks:
       - cargo run -- {{.CLI_ARGS}}
 
   test:
-    desc: Run automated Rust checks and rolling workflow guard checks
+    desc: Run application, accepted backend and rolling workflow guard checks
     cmds:
       - cargo test
       - task workflow:test
+      - task test:pdf
+
+  test:pdf:
+    desc: Test the accepted PDF backend without loading a native renderer
+    cmds:
+      - cargo test --locked --manifest-path components/pdf-preview/Cargo.toml --target-dir target/p03
 
   workflow:test:
     desc: Check rolling workflow ownership and promotion guards without launching agents

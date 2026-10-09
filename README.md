@@ -9,6 +9,7 @@ task run                         # restore workspace, or browse working director
 task run -- "C:\path\to\folder"   # or: cargo run -- "C:\path\to\folder"
 task test                        # portable default checks; disposable fixtures
 task test:fonts                  # explicit Windows reference-host font coverage
+task test:pdf                    # reviewed standalone PDF backend; no PDFium load
 task clean                       # removes target only
 task design                      # opens the Excalidraw reference
 task design-test                 # validates the reference
@@ -185,7 +186,9 @@ native path-to-index projection on the sorting worker and publish it with the ex
 generation/revision key, rather than retaining row indices across sorting.
 
 No preview or file-mutation commands are enabled. Workspace settings save and
-restore are implemented. Browsing never modifies source files, but **externally launched applications may
+restore are implemented. The reviewed standalone PDF backend under
+`components/pdf-preview` is included in `task test`; pane controls, stale-result
+routing, shared budgets and native renderer packaging are still pending. Browsing never modifies source files, but **externally launched applications may
 edit their files or execute code**; open only files you intend to open.
 Hidden and system entries are **hidden by default**. The explicit **Show
 hidden/system entries** checkbox shows both attribute categories together, including
