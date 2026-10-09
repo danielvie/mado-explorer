@@ -1,0 +1,31 @@
+version: '3'
+
+vars:
+  ROOT: '{{.TASKFILE_DIR}}/../..'
+
+tasks:
+  default:
+    desc: List component tasks
+    cmds:
+      - task --taskfile '{{.TASKFILE}}' --list
+  run:
+    desc: Run the safe headless controlled routing check, no DLL or GUI
+    dir: '{{.ROOT}}'
+    cmds:
+      - cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11 --lib coalesced_fifo_is_fair_to_independent_targets
+  check:
+    desc: Check formatting and compile all component targets offline
+    dir: '{{.ROOT}}'
+    cmds:
+      - cargo fmt --manifest-path components/pdf-preview-service/Cargo.toml -- --check
+      - cargo check --locked --offline --all-targets --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+  test:
+    desc: Test component routing, stop ownership and CPU buffer admission
+    dir: '{{.ROOT}}'
+    cmds:
+      - cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+  clean:
+    desc: Remove only the generated root target/p11 build output
+    dir: '{{.ROOT}}'
+    cmds:
+      - cargo clean --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
