@@ -252,13 +252,32 @@ fn metadata_error(error: io::Error) -> SnapshotError {
     }
 }
 
-// No Path::components here: it normalizes some spellings. Admission inspects exact native
-// units before any open and does not rewrite them. Conservative spelling limits are explicit.
+// No Path::components here: it hides unsafe aliases. Validate exact caller units first.
+// Only this private Win32 opening buffer changes; Snapshot retains the untouched PathBuf.
 fn admitted_name(path: &Path) -> Result<Vec<u16>, SnapshotError> {
-    let mut units: Vec<u16> = path.as_os_str().encode_wide().collect();
-    admit(&units).map_err(SnapshotError::InvalidPath)?;
-    units.push(0);
-    Ok(units)
+    let units: Vec<u16> = path.as_os_str().encode_wide().collect();
+    let extra = admit(&units).map_err(SnapshotError::InvalidPath)?;
+    let mut name = Vec::with_capacity(units.len() + extra + 1);
+    let rest = match extra {
+        4 => {
+            name.extend([92, 92, 63, 92]);
+            &units[..]
+        }
+        6 => {
+            name.extend([92, 92, 63, 92, 85, 78, 67, 92]);
+            &units[2..]
+        }
+        _ => &units[..],
+    };
+    // Verbatim '/' is rejected, not interpreted as a separator. Ordinary separators are
+    // equivalent only after admission excludes dot/parent/device/trailing aliases.
+    name.extend(rest.iter().map(|&u| if u == 47 { 92 } else { u }));
+    name.push(0);
+    Ok(name)
+}
+
+fn separator(unit: u16) -> bool {
+    matches!(unit, 47 | 92)
 }
 
 fn ascii_eq(units: &[u16], ascii: &str) -> bool {
@@ -272,7 +291,7 @@ fn drive(units: &[u16]) -> bool {
     units.len() >= 3
         && matches!(units[0], 65..=90 | 97..=122)
         && units[1] == b':' as u16
-        && units[2] == b'\\' as u16
+        && separator(units[2])
 }
 fn volume(units: &[u16]) -> bool {
     units.len() >= 45
@@ -287,7 +306,8 @@ fn volume(units: &[u16]) -> bool {
             }
         })
 }
-fn admit(units: &[u16]) -> Result<(), PathRejection> {
+// Return the net internal-prefix growth. Its terminating NUL is included in the limit.
+fn admit(units: &[u16]) -> Result<usize, PathRejection> {
     use PathRejection::*;
     if units.contains(&0) {
         return Err(Nul);
@@ -295,12 +315,9 @@ fn admit(units: &[u16]) -> Result<(), PathRejection> {
     if units.is_empty() || units.len() > 32766 {
         return Err(Length);
     }
-    if units.contains(&(b'/' as u16)) {
-        return Err(UnsupportedSpelling);
-    }
     let verbatim = units.starts_with(&[92, 92, 63, 92]);
-    if !verbatim && units.len() > 259 {
-        return Err(Length);
+    if verbatim && units.contains(&(b'/' as u16)) {
+        return Err(UnsupportedSpelling);
     }
     let tail = if verbatim {
         let rest = &units[4..];
@@ -315,28 +332,42 @@ fn admit(units: &[u16]) -> Result<(), PathRejection> {
         }
     } else if drive(units) {
         &units[3..]
-    } else if units.starts_with(&[92, 92]) {
+    } else if units.len() >= 2 && separator(units[0]) && separator(units[1]) {
         unc_tail(&units[2..])?
     } else {
         return Err(NotAbsoluteFilesystem);
     };
     if !tail.is_empty() {
-        for part in tail.split(|&u| u == 92) {
+        for part in tail.split(|&u| separator(u)) {
             admit_component(part)?;
         }
     }
-    Ok(())
+    let extra = if verbatim || units.len() <= 259 {
+        0
+    } else if drive(units) {
+        4
+    } else {
+        6 // \\server\share becomes \\?\UNC\server\share.
+    };
+    if units.len() + extra + 1 > 32767 {
+        return Err(Length);
+    }
+    Ok(extra)
 }
 fn unc_tail(units: &[u16]) -> Result<&[u16], PathRejection> {
     let server_end = units
         .iter()
-        .position(|&u| u == 92)
+        .position(|&u| separator(u))
         .ok_or(PathRejection::NotAbsoluteFilesystem)?;
-    admit_component(&units[..server_end])?;
+    admit_component_spelling(&units[..server_end])?;
     let rest = &units[server_end + 1..];
-    let share_end = rest.iter().position(|&u| u == 92).unwrap_or(rest.len());
+    let share_end = rest
+        .iter()
+        .position(|&u| separator(u))
+        .unwrap_or(rest.len());
     let share = &rest[..share_end];
-    admit_component(share)?;
+    // UNC host/share names are not local DOS-device basenames. All other checks remain.
+    admit_component_spelling(share)?;
     if ascii_eq(share, "pipe") {
         return Err(PathRejection::PipeShare);
     }
@@ -346,7 +377,7 @@ fn unc_tail(units: &[u16]) -> Result<&[u16], PathRejection> {
         &[]
     })
 }
-fn admit_component(part: &[u16]) -> Result<(), PathRejection> {
+fn admit_component_spelling(part: &[u16]) -> Result<(), PathRejection> {
     use PathRejection::*;
     if part.is_empty()
         || part.len() > 255
@@ -357,6 +388,10 @@ fn admit_component(part: &[u16]) -> Result<(), PathRejection> {
     {
         return Err(UnsupportedSpelling);
     }
+    Ok(())
+}
+fn admit_component(part: &[u16]) -> Result<(), PathRejection> {
+    admit_component_spelling(part)?;
     let stem_end = part.iter().position(|&u| u == 46).unwrap_or(part.len());
     let mut stem = &part[..stem_end];
     while stem.last() == Some(&32) {
@@ -369,7 +404,7 @@ fn admit_component(part: &[u16]) -> Result<(), PathRejection> {
             && (ascii_eq(&stem[..3], "COM") || ascii_eq(&stem[..3], "LPT"))
             && matches!(stem[3], 48..=57 | 0x00b9 | 0x00b2 | 0x00b3))
     {
-        return Err(DeviceAlias);
+        return Err(PathRejection::DeviceAlias);
     }
     Ok(())
 }

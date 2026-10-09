@@ -132,6 +132,114 @@ fn file_and_directory_identity_unchanged() {
     }
 }
 
+// Compare exact UTF-16 snapshot spellings, not Path's normalized equality.
+fn assert_equivalent_spellings(path: &Path, kind: EntryKind) {
+    let units: Vec<_> = path.as_os_str().encode_wide().collect();
+    let ordinary = if units.starts_with(&[92, 92, 63, 92]) {
+        units[4..].to_vec()
+    } else {
+        units
+    };
+    assert!(drive(&ordinary));
+    let forward: Vec<_> = ordinary
+        .iter()
+        .map(|&u| if u == 92 { 47 } else { u })
+        .collect();
+    let mut alternate = false;
+    let mixed: Vec<_> = ordinary
+        .iter()
+        .map(|&u| {
+            if u == 92 {
+                alternate = !alternate;
+                if alternate { 47 } else { 92 }
+            } else {
+                u
+            }
+        })
+        .collect();
+    let verbatim: Vec<_> = [92, 92, 63, 92]
+        .into_iter()
+        .chain(ordinary.iter().copied())
+        .collect();
+    let expected = Snapshot::capture(PathBuf::from(OsString::from_wide(&verbatim)))
+        .unwrap()
+        .identity();
+    for original in [ordinary, forward, mixed, verbatim] {
+        let snapshot = Snapshot::capture(PathBuf::from(OsString::from_wide(&original))).unwrap();
+        assert_eq!(
+            snapshot
+                .original_path()
+                .as_os_str()
+                .encode_wide()
+                .collect::<Vec<_>>(),
+            original
+        );
+        assert_eq!(snapshot.identity(), expected);
+        assert_eq!(snapshot.kind(), kind);
+        snapshot.revalidate_original_name().unwrap();
+    }
+}
+
+#[test]
+fn ordinary_separator_spellings_capture_and_revalidate_same_file_and_directory() {
+    let f = Fixture::new();
+    assert_equivalent_spellings(&f.file("file-é"), EntryKind::File);
+    assert_equivalent_spellings(&f.directory("directory-é"), EntryKind::Directory);
+}
+
+#[test]
+fn ordinary_long_spellings_open_without_truncating_original() {
+    let mut f = Fixture::new();
+    f.make_verbatim();
+    let mut parent = f.root.clone();
+    for i in 0..5 {
+        parent.push(format!("{i}{}", "q".repeat(60)));
+        f.guard_path(&parent);
+        fs::create_dir(&parent).unwrap();
+    }
+    let path = parent.join("long-é");
+    f.guard_path(&path);
+    OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    assert!(path.as_os_str().encode_wide().count() > 260);
+    assert_equivalent_spellings(&path, EntryKind::File);
+    assert_equivalent_spellings(&parent, EntryKind::Directory);
+    let original: Vec<_> = path
+        .as_os_str()
+        .encode_wide()
+        .skip(4)
+        .map(|u| if u == 92 { 47 } else { u })
+        .collect();
+    let snapshot = Snapshot::capture(PathBuf::from(OsString::from_wide(&original))).unwrap();
+    let moved = parent.join("moved");
+    f.rename(&path, &moved);
+    assert!(matches!(
+        snapshot.revalidate_original_name(),
+        Err(SnapshotError::Missing)
+    ));
+    f.guard_path(&path);
+    OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    assert!(matches!(
+        snapshot.revalidate_original_name(),
+        Err(SnapshotError::Replaced { .. })
+    ));
+    assert_eq!(
+        snapshot
+            .original_path()
+            .as_os_str()
+            .encode_wide()
+            .collect::<Vec<_>>(),
+        original
+    );
+}
+
 #[test]
 fn same_bytes_replacement_is_a_different_object_and_original_is_retained() {
     let f = Fixture::new();
@@ -200,6 +308,7 @@ fn unicode_and_unpaired_utf16_are_preserved() {
         OsString::from_wide(&[b'x' as u16, 0xd800, b'y' as u16, 0xdc00]),
     ] {
         let path = f.file(leaf);
+        assert_equivalent_spellings(&path, EntryKind::File);
         let snapshot = Snapshot::capture(path.clone()).unwrap();
         assert_eq!(
             snapshot
@@ -319,7 +428,6 @@ fn lexical_negatives_never_open_any_name() {
         "\\\\?\\GLOBALROOT",
         "\\\\? \\C:\\x",
         "//?/C:/x",
-        "C:/x",
         "\\\\server\\pipe\\x",
         "\\\\SERVER\\PiPe",
         "\\\\server\\pipe.\\x",
@@ -355,6 +463,31 @@ fn lexical_negatives_never_open_any_name() {
         "\\\\server\\",
         "\\\\server\\share\\x\\",
         "C:\\bad?name",
+        "C:/NUL.txt",
+        "C:/x/../NUL",
+        "C:/x/./y",
+        "C:/x. /y",
+        "C:/x//y",
+        "C:/x/",
+        "C:/a:stream",
+        "C:/bad\u{1}name",
+        "//server/PIPE/x",
+        "\\/server\\pipe/x",
+        "//server/pipe./x",
+        "//server/pipe /x",
+        "//server/share/../pipe/x",
+        "//server/share/NUL.txt",
+        "//NUL/COM1/NUL.txt",
+        "\\\\?\\UNC\\NUL\\COM1\\NUL.txt",
+        "\\\\?\\UNC\\CON\\AUX.\\x",
+        "//server./share/x",
+        "//server /share/x",
+        "//server?/share/x",
+        "//server/share:/x",
+        "\\\\?\\C:/x",
+        "\\\\?\\C:\\x/y",
+        "\\\\?\\UNC\\server/share\\x",
+        "\\\\?\\UNC\\server\\share/x",
     ];
     let before = OPEN_COUNT.with(|c| c.get());
     for path in rejected {
@@ -412,6 +545,101 @@ fn supported_names_are_lexical_only_and_not_normalized() {
         assert_eq!(&admitted[..admitted.len() - 1], original);
         assert_eq!(admitted.last(), Some(&0));
     }
+}
+
+#[test]
+fn ordinary_buffers_normalize_only_separators_and_unc_root_dos_stems_are_supported() {
+    let before = OPEN_COUNT.with(|c| c.get());
+    // Lexical only: never probe any UNC host, share or drive root.
+    for (original, opening) in [
+        ("\\\\NUL\\COM1\\file", "\\\\NUL\\COM1\\file"),
+        ("C:/", "C:\\"),
+        ("C:/x", "C:\\x"),
+        ("d:/folder\\file", "d:\\folder\\file"),
+        ("//NUL/COM1/file", "\\\\NUL\\COM1\\file"),
+        ("\\/CON\\AUX.txt/x", "\\\\CON\\AUX.txt\\x"),
+        ("//CLOCK$/LPT¹/", "\\\\CLOCK$\\LPT¹\\"),
+        (
+            "\\\\?\\UNC\\CONIN$\\CONOUT$\\file",
+            "\\\\?\\UNC\\CONIN$\\CONOUT$\\file",
+        ),
+        ("\\\\?\\unc\\NUL\\COM1", "\\\\?\\unc\\NUL\\COM1"),
+    ] {
+        let original: Vec<_> = original.encode_utf16().collect();
+        let path = PathBuf::from(OsString::from_wide(&original));
+        let name = admitted_name(&path).unwrap();
+        assert_eq!(name, opening.encode_utf16().chain([0]).collect::<Vec<_>>());
+        assert_eq!(path.as_os_str().encode_wide().collect::<Vec<_>>(), original);
+    }
+    assert_eq!(OPEN_COUNT.with(|c| c.get()), before);
+}
+
+fn lexical_path_with_length(prefix: &str, length: usize) -> PathBuf {
+    let mut units: Vec<_> = prefix.encode_utf16().collect();
+    while length - units.len() > 255 {
+        units.extend(std::iter::repeat_n(b'x' as u16, 200));
+        units.push(92);
+    }
+    units.extend(std::iter::repeat_n(b'x' as u16, length - units.len()));
+    PathBuf::from(OsString::from_wide(&units))
+}
+
+#[test]
+fn opening_prefix_and_nul_are_included_in_utf16_bounds() {
+    let before = OPEN_COUNT.with(|c| c.get());
+    for (prefix, extra, opening_prefix) in [
+        ("C:\\", 4, "\\\\?\\C:\\"),
+        ("//NUL/COM1/", 6, "\\\\?\\UNC\\NUL\\COM1\\"),
+        ("\\\\?\\C:\\", 0, "\\\\?\\C:\\"),
+        ("\\\\?\\UNC\\NUL\\COM1\\", 0, "\\\\?\\UNC\\NUL\\COM1\\"),
+    ] {
+        for length in [259, 260, 32766 - extra] {
+            let path = lexical_path_with_length(prefix, length);
+            let original: Vec<_> = path.as_os_str().encode_wide().collect();
+            let name = admitted_name(&path).unwrap();
+            let added = if length > 259 { extra } else { 0 };
+            assert_eq!(name.len(), length + added + 1);
+            assert_eq!(name.last(), Some(&0));
+            let normalized: Vec<_> = original
+                .iter()
+                .map(|&u| if u == 47 { 92 } else { u })
+                .collect();
+            let expected: Vec<_> = if added == 4 {
+                [92, 92, 63, 92]
+                    .into_iter()
+                    .chain(normalized)
+                    .chain([0])
+                    .collect()
+            } else if added == 6 {
+                [92, 92, 63, 92, 85, 78, 67, 92]
+                    .into_iter()
+                    .chain(normalized.into_iter().skip(2))
+                    .chain([0])
+                    .collect()
+            } else {
+                normalized.into_iter().chain([0]).collect()
+            };
+            assert_eq!(name, expected);
+            if length > 259 {
+                assert!(name.starts_with(&opening_prefix.encode_utf16().collect::<Vec<_>>()));
+            }
+            assert_eq!(path.as_os_str().encode_wide().collect::<Vec<_>>(), original);
+        }
+        let too_long = lexical_path_with_length(prefix, 32767 - extra);
+        assert!(matches!(
+            Snapshot::capture(too_long),
+            Err(SnapshotError::InvalidPath(PathRejection::Length))
+        ));
+    }
+    // Long unsafe aliases must be rejected before prefix conversion or any open.
+    for leaf in ["NUL.txt", "x.", "x ", ".", "..", "a:stream", "bad\u{1}name"] {
+        let path = lexical_path_with_length("C:\\", 300).join(leaf);
+        assert!(matches!(
+            Snapshot::capture(path),
+            Err(SnapshotError::InvalidPath(_))
+        ));
+    }
+    assert_eq!(OPEN_COUNT.with(|c| c.get()), before);
 }
 
 // The only write-access native handle is test-only and guarded by an owned fixture.
@@ -503,6 +731,7 @@ fn owned_nonprivileged_junction_captures_leaf_even_with_missing_target() {
     );
     assert_ne!(leaf_snapshot.identity(), target_snapshot.identity());
     leaf_snapshot.revalidate_original_name().unwrap();
+    assert_equivalent_spellings(&leaf, EntryKind::ReparsePoint { tag: 0xa0000003 });
     drop(target_snapshot);
     external.remove_dir(&target);
     // If capture followed the final entry, this would fail because its target is now absent.
@@ -511,6 +740,7 @@ fn owned_nonprivileged_junction_captures_leaf_even_with_missing_target() {
         leaf_snapshot.identity()
     );
     leaf_snapshot.revalidate_original_name().unwrap();
+    assert_equivalent_spellings(&leaf, EntryKind::ReparsePoint { tag: 0xa0000003 });
     source.remove_dir(&leaf);
     assert!(matches!(
         leaf_snapshot.revalidate_original_name(),
