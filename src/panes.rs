@@ -78,26 +78,47 @@ impl Layout {
     }
 
     pub fn split(&mut self, source: PaneId, new: PaneId, axis: Axis, available: Vec2) -> bool {
+        self.split_at(source, new, axis, available, false)
+    }
+
+    pub fn contains(&self, target: PaneId) -> bool {
+        match self {
+            Self::Pane(id) => *id == target,
+            Self::Split { first, second, .. } => first.contains(target) || second.contains(target),
+        }
+    }
+
+    pub fn split_fits(axis: Axis, available: Vec2) -> bool {
+        axis.extent(available) >= axis.extent(MIN_PANE) * 2.0 + DIVIDER
+            && available.x >= MIN_PANE.x
+            && available.y >= MIN_PANE.y
+    }
+
+    pub fn split_at(
+        &mut self,
+        source: PaneId,
+        new: PaneId,
+        axis: Axis,
+        available: Vec2,
+        new_first: bool,
+    ) -> bool {
         match self {
             Self::Pane(id) if *id == source => {
-                if axis.extent(available) < axis.extent(MIN_PANE) * 2.0 + DIVIDER
-                    || available.x < MIN_PANE.x
-                    || available.y < MIN_PANE.y
-                {
+                if !Self::split_fits(axis, available) {
                     return false;
                 }
                 *self = Self::Split {
                     id: new,
                     axis,
                     ratio: 0.5,
-                    first: Box::new(Self::Pane(source)),
-                    second: Box::new(Self::Pane(new)),
+                    first: Box::new(Self::Pane(if new_first { new } else { source })),
+                    second: Box::new(Self::Pane(if new_first { source } else { new })),
                 };
                 true
             }
             Self::Split { first, second, .. } => {
-                first.split(source, new, axis, available)
-                    || second.split(source, new, axis, available)
+                first.split_at(source, new, axis, available, new_first)
+                    || second.split_at(source, new, axis, available, new_first)
             }
             _ => false,
         }

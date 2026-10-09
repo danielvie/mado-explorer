@@ -8,6 +8,9 @@ mod pane_tests;
 mod panes;
 mod selection;
 mod sorting;
+mod tab_drag;
+#[cfg(test)]
+mod tab_drag_tests;
 #[cfg(test)]
 mod tab_tests;
 mod tabs;
@@ -54,6 +57,8 @@ struct Explorer {
     layout: Layout,
     next_pane_id: u64,
     pane_rects: Vec<(PaneId, egui::Rect)>,
+    tab_strips: Vec<tab_drag::TabStripGeometry>,
+    tab_drag_hover: Option<tab_drag::TabDrop>,
     layout_error: Option<String>,
     visible_workspace: egui::Rect,
     reveal_focused_pane: bool,
@@ -102,6 +107,8 @@ impl Explorer {
             layout: Layout::Pane(PaneId(1)),
             next_pane_id: 2,
             pane_rects: Vec::new(),
+            tab_strips: Vec::new(),
+            tab_drag_hover: None,
             layout_error: None,
             visible_workspace: egui::Rect::EVERYTHING,
             reveal_focused_pane: false,
@@ -1433,6 +1440,8 @@ mod tests {
             layout: Layout::Pane(PaneId(1)),
             next_pane_id: 2,
             pane_rects: Vec::new(),
+            tab_strips: Vec::new(),
+            tab_drag_hover: None,
             layout_error: None,
             visible_workspace: egui::Rect::EVERYTHING,
             reveal_focused_pane: false,

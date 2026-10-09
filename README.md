@@ -1,6 +1,6 @@
 # Mado Explorer
 
-S008: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S009: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
@@ -39,8 +39,28 @@ widget state even for two tabs at the same folder. The horizontal tab strip scro
 with overflow; new/close/cycle activation reveals the active tab, and the plus button
 stays outside overflow. Hover a tab to see its complete native location. Tab
 shortcuts use exact modifiers and are suspended while a path/filter editor owns the
-input, including its submission/exit frame. Drag reorder and cross-pane tab moves
-are not yet implemented.
+input, including its submission/exit frame.
+
+Drag a tab's label (not its **x**) to reorder it in its strip, move it into another
+pane's strip, or split at a pane's left/right/top/bottom edge. A cyan insertion line
+or edge band and a tooltip identify the destination; orange feedback explains a
+refused split. Strips take priority where they overlap an edge. The original tab
+moves, keeping its ID, committed location/history, native selection/active/anchor,
+filter/sort/visibility, drafts/errors and manual row scroll. Reordering preserves
+the active tab's identity; a cross-pane move activates and focuses the moved tab
+in the destination. Its active label is revealed. Plus, close and ordinary tab
+clicks remain separate interactions.
+
+Moving the last tab into a different pane collapses its empty source. Splitting
+at its own pane's edge moves the original into the new pane and, if necessary,
+replenishes the source with a fresh tab at the original committed location. This
+keeps the requested split usable, even from the window's lone tab. Edge splits
+require the entire target pane to be visible and room for two 320 x 300 panes plus
+a six-point divider; otherwise no tab/layout state changes. Escape cancels a drag.
+An outside release, stale/incomplete frame, or closed source/destination/insertion
+tab cannot silently move a tab to a different context. Refusals/cancelled releases
+have a visible reason. File payloads are not tab payloads; no file drag/drop or
+filesystem copy/move is enabled.
 
 Use **Split left/right** or **Split top/bottom** for the focused pane. The new pane
 starts with a fresh tab at the source tab's committed location, while the source
@@ -280,7 +300,11 @@ indicator.
 Rows remain virtualized. Loaded listings and their snapshot vectors are not size-capped; no memory/performance acceptance claim has
 been made.
 
-Every activation/refresh receives a new window-wide enumeration generation. Combined
+Every activation/refresh receives a new window-wide enumeration generation. An already
+active tab moved to another pane keeps its live target/generation and pending navigation;
+only an activated inactive tab or newly exposed source tab needs a refresh. The replaced
+destination active tab alone is cancelled/deactivated. Reorder does not restart reads,
+and unrelated panes keep their work. Combined
 with the existing data/query/visibility/sort guards, this rejects inactive/closed-tab
 results even when two tabs share a folder. Responses route by unique generation to
 the owning pane's active tab, never to whichever pane happens to be focused;
@@ -439,4 +463,23 @@ independent tab/selection/navigation state, pane collapse/final-home, narrow col
 shrink/F6 accessibility, simultaneous disposable pane loads and repeated projections,
 closed/stale target rejection, per-target FIFO/coalescing/lifecycle bounds and captured
 launch completion after pane close. The worker counts remain fixed. Mutating-operation
-retention, previews, tab dragging, folder finder and persistence are later slices.
+retention, previews, folder finder and persistence are later slices.
+
+S009 adds typed egui tab dragging, transactional reorder/transfer and four edge splits.
+Ten focused state/headless/background checks cover real pointer reorder/cross-strip
+transfer, retained state/active identities, source-last collapse/index shifts, all
+four own-edge lone-tab replacements, minimum/offscreen/stale/closed refusal, Escape
+and outside release, closed hovered destinations (no retarget to an expanded sibling),
+foreign payload isolation, live target retention and generation-safe inactive-tab
+refresh with manual scroll restoration. These are not native drag/DPI/Narrator checks.
+
+14. In a disposable fixture, drag tabs forward/back within a strip and between panes
+    with different histories, filters, selections and manual scroll positions. Verify
+    the original state moves, active identities survive reorder, destination focus and
+    active-label reveal, plus/x/plain clicks and overflow scrolling. Drag to all four
+    edges, including the window's lone tab: the original moves and a fresh source tab
+    retains the committed location. Move a last tab to an existing pane: its source
+    collapses. Try a minimum-sized or partly offscreen edge and confirm orange feedback
+    and no state loss. Cancel with Escape and release outside targets; neither should
+    activate rows or launch files. Native pointer interaction, DPI and Narrator checks
+    remain pending; do not use document launches or personal-folder mutations as tests.

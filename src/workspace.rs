@@ -74,7 +74,7 @@ impl Explorer {
         self.refresh_tab_in(pane);
     }
 
-    fn refresh_tab_in(&mut self, pane: usize) {
+    pub(super) fn refresh_tab_in(&mut self, pane: usize) {
         let p = &mut self.panes[pane];
         let tab = &mut p.tabs[p.active];
         let generation = self
@@ -90,7 +90,7 @@ impl Explorer {
         self.insert_tab(location);
     }
 
-    fn fresh_tab(&mut self, location: PathBuf) -> Tab {
+    pub(super) fn fresh_tab(&mut self, location: PathBuf) -> Tab {
         let id = TabId(self.next_tab_id);
         self.next_tab_id = self.next_tab_id.checked_add(1).expect("Tab ID exhausted");
         Tab::new(id, location)
@@ -226,17 +226,20 @@ impl Explorer {
         let mut activate = None;
         let mut close = None;
         let mut new = false;
+        let mut dragging = false;
+        let mut tabs = Vec::new();
+        let mut strip_rect = egui::Rect::NOTHING;
         let p = &mut self.panes[pane];
         ui.horizontal(|ui| {
             let width = (ui.available_width() - 40.0).max(80.0);
-            egui::ScrollArea::horizontal()
+            let strip = egui::ScrollArea::horizontal()
                 .id_salt((p.id, "pane-tabs"))
                 .max_width(width)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         for (index, tab) in p.tabs.iter().enumerate() {
-                            ui.push_id(tab.id, |ui| {
+                            let group = ui.push_id(tab.id, |ui| {
                                 let location = &tab.navigation.current.location;
                                 let label = location.file_name().unwrap_or(location.as_os_str());
                                 let response = ui
@@ -244,11 +247,22 @@ impl Explorer {
                                         [140.0, 26.0],
                                         egui::Button::new(native::display(label))
                                             .selected(index == p.active)
+                                            .sense(egui::Sense::click_and_drag())
                                             .truncate(),
                                     )
                                     .on_hover_text(native::display(location.as_os_str()));
                                 if index == p.active && p.reveal_active_tab {
                                     response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                                if response.drag_started_by(egui::PointerButton::Primary) {
+                                    egui::DragAndDrop::set_payload(
+                                        ui.ctx(),
+                                        tab_drag::TabDrag {
+                                            source: p.id,
+                                            tab: tab.id,
+                                        },
+                                    );
+                                    dragging = true;
                                 }
                                 if response.clicked() {
                                     activate = Some(index);
@@ -264,15 +278,25 @@ impl Explorer {
                                     close = Some(index);
                                 }
                             });
+                            tabs.push((tab.id, group.response.rect));
                         }
                     });
                 });
+            strip_rect = strip.inner_rect.intersect(ui.clip_rect());
             new = ui
                 .button("+")
                 .on_hover_text("New tab at the committed location (Ctrl+T)")
                 .clicked();
         });
         p.reveal_active_tab = false;
+        self.tab_strips.push(tab_drag::TabStripGeometry {
+            pane: p.id,
+            rect: strip_rect,
+            tabs,
+        });
+        if dragging {
+            surrender_focus(ui.ctx());
+        }
         if close.is_some() || activate.is_some() || new {
             self.focus_pane(pane);
             if let Some(index) = close {
@@ -295,8 +319,11 @@ impl Explorer {
     fn toolbar_in(&mut self, ui: &mut egui::Ui, pane: usize) -> bool {
         let p = &mut self.panes[pane];
         let tab = &mut p.tabs[p.active];
+        let dragging = egui::DragAndDrop::has_payload_of_type::<tab_drag::TabDrag>(ui.ctx());
         let (editing, command) = ui
-            .push_id(tab.id, |ui| tab.toolbar(ui, pane == self.focused))
+            .push_id(tab.id, |ui| {
+                tab.toolbar(ui, pane == self.focused && !dragging)
+            })
             .inner;
         if let Some((location, intent)) = command {
             self.navigate_in(pane, location, intent);
@@ -320,12 +347,15 @@ impl Explorer {
     fn table_in(&mut self, ui: &mut egui::Ui, pane: usize, editing: bool) -> Option<Activation> {
         let p = &mut self.panes[pane];
         let tab = &mut p.tabs[p.active];
-        ui.push_id(tab.id, |ui| tab.table(ui, editing, pane == self.focused))
-            .inner
+        let dragging = egui::DragAndDrop::has_payload_of_type::<tab_drag::TabDrag>(ui.ctx());
+        ui.push_id(tab.id, |ui| {
+            tab.table(ui, editing, pane == self.focused && !dragging)
+        })
+        .inner
     }
 }
 
-fn surrender_focus(ctx: &egui::Context) {
+pub(super) fn surrender_focus(ctx: &egui::Context) {
     ctx.memory_mut(|memory| {
         if let Some(id) = memory.focused() {
             memory.surrender_focus(id);
@@ -359,6 +389,8 @@ impl Explorer {
         }
         self.window_status(ui);
         let size = ui.available_size().max(self.layout.minimum());
+        let mut complete_geometry = true;
+        self.tab_strips.clear();
         egui::ScrollArea::both()
             .id_salt("workspace-layout")
             .animated(false)
@@ -436,6 +468,7 @@ impl Explorer {
                         ui.input_mut(|input| input.events = events);
                     }
                     if changed {
+                        complete_geometry = false;
                         return;
                     }
                 }
@@ -467,6 +500,7 @@ impl Explorer {
                     }
                 }
             });
+        self.finish_tab_drag(ui, complete_geometry);
         self.request_sort();
     }
     fn render_pane(
@@ -514,8 +548,10 @@ impl Explorer {
             .id_salt((id, "pane-controls"))
             .auto_shrink([false, false])
             .show(&mut child, |ui| {
-                let editing = self.toolbar_in(ui, pane);
-                if pane == self.focused {
+                let dragging =
+                    egui::DragAndDrop::has_payload_of_type::<tab_drag::TabDrag>(ui.ctx());
+                let editing = self.toolbar_in(ui, pane) || dragging;
+                if pane == self.focused && !dragging {
                     if let Some(command) = tab_shortcut(ui.ctx(), editing) {
                         self.apply_tab_shortcut(command);
                         surrender_focus(ui.ctx());
