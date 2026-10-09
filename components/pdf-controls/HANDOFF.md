@@ -12,7 +12,7 @@
 
 F08.1 metadata/control portion: working pane-local egui filename/full-path labels with complete hover text, supplied page count, requested page and separate confirmed displayed page. Counts are unavailable during loading, missing-renderer, malformed, password-required and supplied failure states. Zero and counts above `u32::MAX` become explicit invalid-metadata failures, not zero-page documents.
 
-F08.2 UI/state portion: actual Previous/Next buttons, editable one-based page number, Go and focused Enter/Space activation. Requests use checked zero-based `u32` indexes. Invalid, empty, overflowed and out-of-bounds input stays in the editor with an explanation. Input is not silently truncated to a different valid decimal command. Selection changes reset to page one. A smaller same-document count resets an out-of-range requested page to page one; an in-range page remains requested. Invalid drafts survive metadata changes and automatic requests.
+F08.2 UI/state portion: actual Previous/Next buttons, editable one-based page number, Go and focused Enter/Space activation. Requests use checked zero-based `u32` indexes. Invalid, empty, overflowed and out-of-bounds input stays in the editor with an explanation. Input is not silently truncated to a different valid decimal command. Selection changes reset to page one. A smaller same-document count resets an out-of-range requested page to page one; an in-range page remains requested. Edited drafts survive metadata changes and automatic requests whether submitted, valid or invalid. A dirty draft is tracked separately from the requested page. Metadata updates explain changed bounds for an invalid draft without replacing its text, cursor/selection or undo history. Successful explicit Go, Enter, Previous, Next and direct `request_page` calls intentionally commit the editor to the requested page and clear the dirty/error flags; rejected submissions retain the draft. A different document resets the editor and its history.
 
 Fallback presentation overlaps F08.4 only as supplied-state UI, not engine verification. No complete F08.1/F08.2/F08.4 acceptance claim. No parser, file reads, DLL loading, PDF rendering, textures, cache, threads, clipboard, native probes or application enablement.
 
@@ -46,11 +46,55 @@ A successful request increments the sequence and returns a target whose page rev
 
 Use one controller per pane and a stable, unique caller pane salt. Never derive salts from paths, document revisions or requests. One finite presenter namespace, four focusable controls and two path-hover tooltip identities are reused across selections and controller recreation. The controller retains only current document/state/request data, no history or response queue.
 
-Explicit document/metadata epochs reject inherited opening/held activation keys and old primary press/release gestures. Only owned stale focus and owned TextEdit state are reset. No global egui data/cache clearing, forced cardinal navigation, modal layer or window-wide input consumption. Enter/Space are consumed only when an allowed PDF control owns the corresponding activation key. Text editing, unrelated pane input and modal/disabled parent ownership remain available.
+Explicit document/metadata epochs reject inherited opening/held activation keys and old primary press/release gestures. Primary press captures the immutable pane/document/metadata/page target; release after any newer page request is stale even if the widget ID and metadata remain unchanged. Keyboard navigation still captures its current target when explicitly invoked. Only owned stale focus is reset. New-document TextEdit state resets, but same-document metadata keeps the editor's focus, cursor/selection and undo history. No global egui data/cache clearing, forced cardinal navigation, modal layer or window-wide input consumption. Enter/Space are consumed only when an allowed PDF control owns the corresponding activation key. Text editing, unrelated pane input and modal/disabled parent ownership remain available.
 
-On layout retries, the editor still registers focus interest but uses an immutable display buffer and restores its own cursor/undo state. This avoids repeated edits without surrendering current editor focus. Actions run once per frame. The pinned egui 0.36.2 child-Ui auto-ID rule is used to identify the three button IDs before drawing; tests compare it with the actual Response IDs. An egui upgrade must retain/recheck this contract.
+On layout retries, the editor still registers focus interest but uses an immutable display buffer and restores its own cursor/state plus an independent snapshot of its undoer's contents. `TextEditState::clone` alone does not snapshot history. This avoids repeated edits and history advancement without surrendering current editor focus. Actions run once per frame. The pinned egui 0.36.2 child-Ui auto-ID rule is used to identify the three button IDs before drawing; tests compare it with the actual Response IDs. An egui upgrade must retain/recheck this contract.
 
-## Validation
+## S013-R07 correction evidence
+
+- Frozen start: `c0d6fbf423d9120f2c18d8adf8e45bb29516e117`, clean `lane/conflict-dialog`.
+- Rework writes only `components/pdf-controls/src/lib.rs`, `components/pdf-controls/src/tests.rs` and this handoff. Existing 24 behavior checks and assertions remain unchanged.
+- No approval, integration, root/shared/sibling edit, dependency change or production enablement. No file/clipboard/native renderer/actual GUI/cache/thread work.
+
+Pinned SDK source read at `C:/Users/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egui-0.36.2/src/`:
+
+- `widgets/text_edit/state.rs` has an `Arc<Mutex<TextEditUndoer>>` inside cloned state. Public `undoer()` clones its contents; `set_undoer()` replaces those contents. Rework captures `(state, state.undoer())` before retry rendering, then restores the independent contents before storing state. No private SDK field access or dependency patch.
+- `widgets/text_edit/builder.rs` processes undo/redo and feeds history even for an immutable text buffer. A read-only retry buffer alone cannot protect history.
+- `util/undoer.rs` provides `add_undo`, `undo` and `redo`. Regression seeds three points from actual headless editor drafts, then checks real Ctrl+Z/Ctrl+Y changes, cursor/focus stability across three discard passes and subsequent history.
+- `context.rs` `run_dyn` uses `new_input.take()` after pass zero. Plain default `run_ui` discard does not replay volatile key events, and the initial plain-discard probe passed on the frozen start. The retained-command regression explicitly keeps the owned Ctrl+Z/Y event on retry via `input_mut`, simulating a host that retains editing commands. This condition is documented, not presented as default egui behavior. It fails on the frozen implementation because retry editing advances the shared history while text remains unchanged. No actual GUI claim.
+
+Red evidence before changing production code:
+
+```text
+cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10 r07_ -- --nocapture
+cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10 r07_unsubmitted -- --nocapture
+cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10 r07_layout -- --nocapture
+```
+
+- Held Next, direct request for page 3, then release emitted an unwanted request. Assertion expecting no request failed.
+- Never-submitted valid `2` and invalid `9` drafts followed by shrinking metadata were replaced by `1`. Both text equality assertions failed. Initial fixture used committed page 8 to cover metadata clamping. Final fixture also covers committed page 1, which isolates automatic-request overwrite without clamping.
+- Retained Ctrl+Z over three discard passes left text `3` but destroyed redo to `4`: `undoer().redo(current).unwrap()` failed with None. The initial plain-discard variant passed for the SDK reason above.
+- First combined red run also exposed an unapplied test `TexturesDelta` destructor panic during draft assertion unwinding. The new fixture clears test deltas before assertions; separate red draft rerun reports two ordinary assertion failures. No production workaround and no old test changed.
+
+First coherent fix passed all four new focused checks and all 28 component checks. The final fixture strengthens metadata coverage with both committed pages 1 and 8. Independent exact-head review is still required, including the retained-command harness condition.
+
+Final rework commands, all from explicit `cd C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog`:
+
+```text
+cargo fmt --manifest-path components/pdf-controls/Cargo.toml
+cargo fmt --manifest-path components/pdf-controls/Cargo.toml --check
+cargo check --locked --offline --all-targets --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10
+cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10 r07_ -- --nocapture
+cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10
+git diff --check
+git diff --cached --check
+```
+
+Final results: formatting and locked/offline all-target check passed; focused tests 4 passed, 0 failed/ignored; full suite 28 passed, 0 failed/ignored, plus 0 doc tests; diff checks passed. Only the three assigned paths changed. Component-only terminal commit is reported in the worker handoff, not self-approved here.
+
+SDK/public API limits and all future-host gates below remain unchanged. Manual UI, DPI, Narrator, PDF rendering and root integration are unavailable/not performed. No full criterion completion claim.
+
+## Original P10 validation
 
 Every shell command used an explicit `cd C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog`.
 

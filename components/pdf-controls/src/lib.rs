@@ -136,11 +136,14 @@ pub struct PdfControls {
     sequence: u64,
     needs_request: bool,
     editor: String,
+    editor_dirty: bool,
+    reset_editor_state: bool,
     editor_error: Option<String>,
     render_error: Option<String>,
     first_frame: Option<u64>,
     processed_frame: Option<u64>,
     pointer: PointerEpoch,
+    pressed_target: Option<PageTarget>,
     blocked_enter: bool,
     blocked_space: bool,
     #[cfg(test)]
@@ -162,11 +165,14 @@ impl PdfControls {
             sequence: 0,
             needs_request: false,
             editor: "1".into(),
+            editor_dirty: false,
+            reset_editor_state: true,
             editor_error: None,
             render_error: None,
             first_frame: None,
             processed_frame: None,
             pointer: PointerEpoch::Blocked,
+            pressed_target: None,
             blocked_enter: true,
             blocked_space: true,
             #[cfg(test)]
@@ -197,6 +203,8 @@ impl PdfControls {
         self.pending = None;
         self.needs_request = false;
         self.editor = "1".into();
+        self.editor_dirty = false;
+        self.reset_editor_state = true;
         self.editor_error = None;
         self.render_error = None;
         self.disarm();
@@ -232,13 +240,16 @@ impl PdfControls {
         if let Some(count) = self.page_count() {
             if self.requested >= count {
                 self.requested = 0;
-                // Preserve an invalid draft so the user can repair it.
-                if self.editor_error.is_none() {
+                // Metadata changes the committed request, not an unsubmitted draft.
+                if !self.editor_dirty {
                     self.editor = "1".into();
                 }
             }
-            if self.editor_error.is_some() {
-                self.editor_error = Some(format!("Enter a whole page number from 1 to {count}"));
+            if self.editor_dirty {
+                self.editor_error = (!self
+                    .editor_page()
+                    .is_some_and(|page| (1..=u64::from(count)).contains(&page)))
+                .then(|| format!("Enter a whole page number from 1 to {count}"));
             }
             self.needs_request = true;
         } else {
@@ -306,7 +317,7 @@ impl PdfControls {
                 .filter(|index| *index < count),
         }
         .ok_or(Refusal::InvalidPage)?;
-        self.make_request(target.clone(), index)
+        self.make_request(target.clone(), index, true)
     }
 
     /// Only the latest exact request can acknowledge display/failure. Reports for
@@ -335,6 +346,7 @@ impl PdfControls {
         &mut self,
         mut target: PageTarget,
         index: u32,
+        commit_editor: bool,
     ) -> Result<TaggedPageRequest, Refusal> {
         self.sequence = self
             .sequence
@@ -347,17 +359,27 @@ impl PdfControls {
             page_index: index,
         };
         self.requested = index;
-        self.editor = (u64::from(index) + 1).to_string();
-        self.editor_error = None;
+        if commit_editor || !self.editor_dirty {
+            self.editor = (u64::from(index) + 1).to_string();
+            self.editor_dirty = false;
+            self.editor_error = None;
+        }
         self.render_error = None;
         self.pending = Some(request.clone());
         self.needs_request = false;
         Ok(request)
     }
 
+    fn editor_page(&self) -> Option<u64> {
+        (!self.editor.is_empty() && self.editor.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| self.editor.parse().ok())
+            .flatten()
+    }
+
     fn disarm(&mut self) {
         self.first_frame = None;
         self.pointer = PointerEpoch::Blocked;
+        self.pressed_target = None;
         self.blocked_enter = true;
         self.blocked_space = true;
     }
@@ -370,9 +392,13 @@ impl PdfControls {
         [previous, next, go, self.id.with("page-editor")]
     }
 
-    fn surrender_owned_focus(&self, ui: &Ui) {
+    fn surrender_owned_focus(&self, ui: &Ui, include_editor: bool) {
         ui.memory_mut(|memory| {
-            for id in self.control_ids() {
+            for id in self
+                .control_ids()
+                .into_iter()
+                .take(if include_editor { 4 } else { 3 })
+            {
                 memory.surrender_focus(id);
             }
         });
@@ -385,6 +411,9 @@ impl PdfControls {
         let once = self.processed_frame != Some(frame);
         self.processed_frame = Some(frame);
         let fresh = *self.first_frame.get_or_insert(frame) == frame;
+        if !fresh {
+            self.reset_editor_state = false;
+        }
         let mut output = ControlsOutput::default();
         let allowed = ui.is_enabled()
             && ui.is_visible()
@@ -396,15 +425,19 @@ impl PdfControls {
             if owned_before && allowed {
                 // Clear only this pane's stale focus and scheduled focus movement.
                 ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
-                self.surrender_owned_focus(ui);
+                self.surrender_owned_focus(ui, self.reset_editor_state);
             }
-            egui::text_edit::TextEditState::default().store(ui.ctx(), self.id.with("page-editor"));
+            if self.reset_editor_state {
+                egui::text_edit::TextEditState::default()
+                    .store(ui.ctx(), self.id.with("page-editor"));
+            }
         }
         let mut click = false;
         let mut stale_pointer = false;
         let mut enter = false;
         let mut space = false;
         if once {
+            let current_target = self.target();
             ui.input(|input| {
                 for event in &input.events {
                     match event {
@@ -416,16 +449,22 @@ impl PdfControls {
                             if *pressed {
                                 if !fresh && allowed && self.pointer == PointerEpoch::Ready {
                                     self.pointer = PointerEpoch::Pressed;
+                                    self.pressed_target = current_target.clone();
                                 } else {
                                     self.pointer = PointerEpoch::Blocked;
+                                    self.pressed_target = None;
                                     stale_pointer = true;
                                 }
                             } else {
-                                let valid =
-                                    !fresh && allowed && self.pointer == PointerEpoch::Pressed;
+                                let valid = !fresh
+                                    && allowed
+                                    && self.pointer == PointerEpoch::Pressed
+                                    && self.pressed_target.is_some()
+                                    && self.pressed_target == current_target;
                                 click |= valid;
                                 stale_pointer |= !valid;
                                 self.pointer = PointerEpoch::Ready;
+                                self.pressed_target = None;
                             }
                         }
                         egui::Event::Key {
@@ -550,8 +589,8 @@ impl PdfControls {
                             "Next",
                         );
                         ui.label("Page");
-                        // Retry passes still register focus interest. An immutable
-                        // buffer and restored cursor/undo state prevent event replay.
+                        // Retry passes still register focus interest. TextEditState
+                        // clones share the undoer Arc, so snapshot its contents too.
                         let saved_state = (!once)
                             .then(|| {
                                 egui::text_edit::TextEditState::load(
@@ -559,7 +598,11 @@ impl PdfControls {
                                     id.with("page-editor"),
                                 )
                             })
-                            .flatten();
+                            .flatten()
+                            .map(|state| {
+                                let undoer = state.undoer();
+                                (state, undoer)
+                            });
                         let displayed = self.editor.clone();
                         let mut readonly = displayed.as_str();
                         let buffer: &mut dyn egui::TextBuffer = if once {
@@ -574,10 +617,18 @@ impl PdfControls {
                                 .desired_width(70.0)
                                 // Never truncate a decimal command to a valid prefix.
                                 .return_key(None)
-                                .interactive(allowed && !fresh && !stale_pointer),
+                                .interactive(
+                                    allowed
+                                        && (!fresh || !self.reset_editor_state)
+                                        && !stale_pointer,
+                                ),
                         );
-                        if let Some(state) = saved_state {
+                        if let Some((mut state, undoer)) = saved_state {
+                            state.set_undoer(undoer);
                             state.store(ui.ctx(), id.with("page-editor"));
+                        }
+                        if once && editor.changed() {
+                            self.editor_dirty = true;
                         }
                         let go = page_button(ui, id.with("go"), count.is_some(), "Go");
                         ([previous, next, go], editor)
@@ -621,7 +672,7 @@ impl PdfControls {
             }
         });
         if fresh || stale_pointer {
-            self.surrender_owned_focus(ui);
+            self.surrender_owned_focus(ui, stale_pointer || self.reset_editor_state);
         }
         output.owns_keyboard |= allowed
             && ui
@@ -631,11 +682,7 @@ impl PdfControls {
             if let Some(action) = action {
                 let action = if matches!(action, PageAction::Direct(_)) {
                     // ASCII decimal only. Preserve invalid drafts and keep focus.
-                    if self.editor.is_empty() || !self.editor.bytes().all(|b| b.is_ascii_digit()) {
-                        None
-                    } else {
-                        self.editor.parse::<u64>().ok().map(PageAction::Direct)
-                    }
+                    self.editor_page().map(PageAction::Direct)
                 } else {
                     Some(action)
                 };
@@ -659,20 +706,12 @@ impl PdfControls {
             } else if self.needs_request
                 && let Some(target) = self.target()
             {
-                let invalid_draft = self
-                    .editor_error
-                    .as_ref()
-                    .map(|error| (self.editor.clone(), error.clone()));
-                match self.make_request(target, self.requested) {
+                match self.make_request(target, self.requested, false) {
                     Ok(request) => output.request = Some(request),
                     Err(_) => {
                         self.needs_request = false;
                         self.render_error = Some("Page request sequence exhausted".into());
                     }
-                }
-                if let Some((draft, error)) = invalid_draft {
-                    self.editor = draft;
-                    self.editor_error = Some(error);
                 }
             }
         }

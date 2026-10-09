@@ -969,6 +969,169 @@ fn layout_retries_emit_one_request_and_edit_text_once() {
     assert_eq!(first_requests[0].page_index(), 0);
 }
 
+fn edit_command(key: Key) -> Event {
+    let mut event = press(key, true);
+    if let Event::Key { modifiers, .. } = &mut event {
+        *modifiers = Modifiers::COMMAND;
+    }
+    event
+}
+
+fn retry_edit(ctx: &Context, controls: &mut PdfControls, key: Key, expected: &str) {
+    ctx.options_mut(|options| options.max_passes = 3.try_into().unwrap());
+    let editor_id = controls.control_ids()[3];
+    let mut passes = 0;
+    let mut cursor = None;
+    let output = ctx.run_ui(input(vec![edit_command(key)]), |ui| {
+        // Context::run_ui takes volatile events after pass zero. Exercise the
+        // controller's retry guard with a host-retained owned editing command.
+        if ctx.current_pass_index() > 0 {
+            ctx.input_mut(|input| input.events.push(edit_command(key)));
+        }
+        assert!(controls.show(ui).request.is_none());
+        passes += 1;
+        assert_eq!(controls.editor(), expected);
+        assert!(ctx.memory(|memory| memory.has_focus(editor_id)));
+        let current = egui::text_edit::TextEditState::load(ctx, editor_id)
+            .unwrap()
+            .cursor
+            .char_range()
+            .unwrap();
+        assert_eq!(*cursor.get_or_insert(current), current);
+        if ctx.current_pass_index() < 2 {
+            ctx.request_discard("undo/redo multiple retries");
+        }
+    });
+    output.drop_without_applying_deltas();
+    assert_eq!(passes, 3);
+    run(ctx, controls, vec![press(key, false)]);
+}
+
+#[test]
+fn r07_layout_retries_preserve_real_undo_redo_history() {
+    let (ctx, mut controls, _) = open(8);
+    let editor_id = controls.control_ids()[3];
+    let mut history = egui::text_edit::TextEditState::default().undoer();
+    for text in ["2", "3", "4"] {
+        draft(&ctx, &mut controls, text);
+        let mut state = egui::text_edit::TextEditState::load(&ctx, editor_id).unwrap();
+        history.add_undo(&(state.cursor.char_range().unwrap(), text.into()));
+        state.set_undoer(history.clone());
+        state.store(&ctx, editor_id);
+    }
+    retry_edit(&ctx, &mut controls, Key::Z, "3");
+    let state = egui::text_edit::TextEditState::load(&ctx, editor_id).unwrap();
+    let current = (
+        state.cursor.char_range().unwrap(),
+        controls.editor().to_owned(),
+    );
+    assert_eq!(state.undoer().redo(&current).unwrap().1, "4");
+    retry_edit(&ctx, &mut controls, Key::Z, "2");
+    retry_edit(&ctx, &mut controls, Key::Y, "3");
+    retry_edit(&ctx, &mut controls, Key::Y, "4");
+    retry_edit(&ctx, &mut controls, Key::Z, "3");
+}
+
+#[test]
+fn r07_held_next_rejects_release_after_direct_request_and_accepts_fresh_press() {
+    let (ctx, mut controls, _) = open(8);
+    let pos = controls.controls.as_ref().unwrap().0[1].rect.center();
+    assert!(
+        run(&ctx, &mut controls, pointer(pos, true))
+            .request
+            .is_none()
+    );
+    let target = controls.target().unwrap();
+    let third = controls
+        .request_page(&target, PageAction::Direct(3))
+        .unwrap();
+    assert!(
+        run(&ctx, &mut controls, pointer(pos, false))
+            .request
+            .is_none()
+    );
+    assert_eq!(controls.requested_page(), 2);
+    assert_eq!(controls.pending(), Some(&third));
+    assert_eq!(
+        button(&ctx, &mut controls, 1).request.unwrap().page_index(),
+        3
+    );
+    ctx.memory_mut(|memory| memory.request_focus(controls.control_ids()[1]));
+    assert_eq!(submit(&ctx, &mut controls).request.unwrap().page_index(), 4);
+}
+
+fn unsubmitted_metadata_draft(committed: u64, text: &str, error: Option<&str>) {
+    let (ctx, mut controls, _) = open(8);
+    if committed != 1 {
+        let target = controls.target().unwrap();
+        controls
+            .request_page(&target, PageAction::Direct(committed))
+            .unwrap();
+        run(&ctx, &mut controls, vec![]);
+    }
+    draft(&ctx, &mut controls, text);
+    assert!(
+        controls.editor_error().is_none(),
+        "draft has never been submitted"
+    );
+    let editor_id = controls.control_ids()[3];
+    let mut state = egui::text_edit::TextEditState::load(&ctx, editor_id).unwrap();
+    let range =
+        egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(1));
+    state.cursor.set_char_range(Some(range));
+    let mut history = egui::text_edit::TextEditState::default().undoer();
+    history.add_undo(&(range, committed.to_string()));
+    history.add_undo(&(range, text.into()));
+    state.set_undoer(history);
+    state.store(&ctx, editor_id);
+    controls
+        .supply_metadata(&key(1), 2, DocumentState::Available { page_count: 2 })
+        .unwrap();
+    let (result, mut output) = frame(&ctx, &mut controls, vec![]);
+    output.textures_delta.clear();
+    assert_eq!(result.request.unwrap().page_index(), 0);
+    assert_eq!(controls.editor(), text);
+    assert_eq!(controls.editor_error(), error);
+    assert!(text_present(&output, "Pages: 2"));
+    if let Some(error) = error {
+        assert!(text_present(&output, error));
+    }
+    output.drop_without_applying_deltas();
+    let state = egui::text_edit::TextEditState::load(&ctx, editor_id).unwrap();
+    assert_eq!(state.cursor.char_range(), Some(range));
+    assert_eq!(
+        state.undoer().undo(&(range, text.into())).unwrap().1,
+        committed.to_string()
+    );
+    assert!(ctx.memory(|memory| memory.has_focus(editor_id)));
+    settle(&ctx, &mut controls);
+    assert_eq!(controls.editor(), text);
+    assert_eq!(
+        button(&ctx, &mut controls, 1).request.unwrap().page_index(),
+        1
+    );
+    assert_eq!(controls.editor(), "2", "explicit Next commits the editor");
+    assert!(controls.editor_error().is_none());
+}
+
+#[test]
+fn r07_unsubmitted_invalid_draft_survives_shrinking_metadata_and_auto_request() {
+    for committed in [1, 8] {
+        unsubmitted_metadata_draft(
+            committed,
+            "9",
+            Some("Enter a whole page number from 1 to 2"),
+        );
+    }
+}
+
+#[test]
+fn r07_unsubmitted_valid_draft_survives_shrinking_metadata_and_auto_request() {
+    for committed in [1, 8] {
+        unsubmitted_metadata_draft(committed, "2", None);
+    }
+}
+
 #[test]
 fn repeated_documents_and_hover_have_bounded_presenter_and_focus_ids() {
     let ctx = Context::default();
