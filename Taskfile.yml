@@ -21,6 +21,12 @@ tasks:
       - task test:conflict
       - task test:raster
       - task test:drawer
+      - task test:source
+
+  test:source:
+    desc: Test accepted read-only source identities with owned native fixtures
+    cmds:
+      - cargo test --locked --manifest-path components/fs-source-snapshot/Cargo.toml --target-dir target/p12 -- --test-threads=1
 
   test:drawer:
     desc: Test accepted operation drawer queue, reports and bounded input ownership
