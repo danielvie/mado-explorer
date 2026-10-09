@@ -1,0 +1,7 @@
+# Rust build output
+/target/
+
+# rustfmt backups
+**/*.rs.bk
+
+# Keep Cargo.lock tracked for this application.

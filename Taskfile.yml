@@ -1,0 +1,24 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  run:
+    desc: Open the editable layout in Mado Excalidraw
+    cmds:
+      - mado-excalidraw run design/file-explorer-layout.excalidraw
+
+  test:
+    desc: Validate layout JSON, frame references and editable elements
+    cmds:
+      - >-
+        node -e "const fs=require('node:fs'),a=require('node:assert/strict'),s=JSON.parse(fs.readFileSync('design/file-explorer-layout.excalidraw','utf8')),e=s.elements,ids=new Set(e.map(x=>x.id)),frames=new Set(e.filter(x=>x.type==='frame').map(x=>x.id));a.equal(s.type,'excalidraw');a.equal(s.version,2);a.equal(ids.size,e.length);a.equal(frames.size,3);a.ok(e.every(x=>!x.isDeleted&&!x.locked&&(!x.frameId||frames.has(x.frameId))&&Number.isFinite(x.x)&&Number.isFinite(x.y)&&x.width>=0&&x.height>=0));a.ok(e.filter(x=>x.type==='text').every(x=>x.fontFamily===5&&x.fontSize>=16));console.log(e.length+' editable elements; 3 frames; checks passed');"
+
+  clean:
+    desc: Remove generated PNG previews without deleting the editable layout
+    cmds:
+      - >-
+        node -e "const fs=require('node:fs');for(const n of ['01-browse-preview.png','02-folder-finder.png','03-split-panes.png'])fs.rmSync('design/'+n,{force:true});"
