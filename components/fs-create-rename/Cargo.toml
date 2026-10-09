@@ -1,0 +1,15 @@
+[package]
+name = "mado-fs-create-rename"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[features]
+# Disposable diagnostic probes only. Known same-file hard-link collision blocker.
+# Do not enable in the application or on personal data.
+unreviewed-native-rename = []
+
+[target.'cfg(windows)'.dependencies]
+# Handle-relative creation/rename, native file IDs, and non-following opens.
+windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO"] }

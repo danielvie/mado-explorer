@@ -1,0 +1,29 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List component tasks
+    cmds:
+      - task --list
+  run:
+    desc: Run disposable checks for the default safety-gated backend
+    cmds:
+      - cargo test --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p02' -- --nocapture
+  test:
+    desc: Run all component checks, including the known failing native rename blocker
+    cmds:
+      - task: run
+      - cargo test --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p02' --features unreviewed-native-rename -- --nocapture
+  test:reparse:
+    desc: Probe reparse guards explicitly, requires Windows symlink privilege
+    cmds:
+      - cargo test --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p02' --test safety reparse_source_and_ancestors_are_rejected_without_touching_target -- --ignored --exact --nocapture
+  check:
+    desc: Check formatting and compile the component
+    cmds:
+      - cargo fmt --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --check
+      - cargo check --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p02'
+  clean:
+    desc: Remove generated component build output only
+    cmds:
+      - cargo clean --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p02'
