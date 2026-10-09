@@ -20,6 +20,12 @@ tasks:
       - task test:summary
       - task test:conflict
       - task test:raster
+      - task test:drawer
+
+  test:drawer:
+    desc: Test accepted operation drawer queue, reports and bounded input ownership
+    cmds:
+      - cargo test --locked --manifest-path components/operation-drawer/Cargo.toml --target-dir target/p09
 
   test:raster:
     desc: Test accepted raster controls, ordered gestures and modal ownership
