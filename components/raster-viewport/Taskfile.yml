@@ -1,0 +1,22 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List component tasks
+    cmds:
+      - task --list
+  run:
+    desc: Run a safe generated-texture headless demonstration
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo run --locked --target-dir target --example generated
+  test:
+    desc: Test viewport controls with generated textures and injected input
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo test --locked --target-dir target --lib
+  clean:
+    desc: Remove only this component's generated target output
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo clean --target-dir target
