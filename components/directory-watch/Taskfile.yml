@@ -1,0 +1,29 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List component tasks
+    cmds:
+      - task --taskfile components/directory-watch/Taskfile.yml --list
+    dir: ../..
+  run:
+    desc: Run the safe owned disposable native event probe, not an application service
+    dir: ../..
+    cmds:
+      - cargo test --locked --manifest-path components/directory-watch/Cargo.toml --target-dir target/p04 native_create_metadata_rename_delete_and_pending_drop -- --nocapture
+  test:
+    desc: Run disposable checks, including the retained failing native overflow regression
+    dir: ../..
+    cmds:
+      - cargo test --locked --manifest-path components/directory-watch/Cargo.toml --target-dir target/p04 -- --nocapture
+  check:
+    desc: Check formatting and locked component compilation
+    dir: ../..
+    cmds:
+      - cargo fmt --manifest-path components/directory-watch/Cargo.toml --check
+      - cargo check --locked --all-targets --manifest-path components/directory-watch/Cargo.toml --target-dir target/p04
+  clean:
+    desc: Remove generated target/p04 only
+    dir: ../..
+    cmds:
+      - cargo clean --manifest-path components/directory-watch/Cargo.toml --target-dir target/p04
