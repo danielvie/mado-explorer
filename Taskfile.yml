@@ -17,6 +17,12 @@ tasks:
       - cargo test
       - task workflow:test
       - task test:pdf
+      - task test:summary
+
+  test:summary:
+    desc: Test accepted selection-summary controls with generated metadata
+    cmds:
+      - cargo test --locked --manifest-path components/selection-summary/Cargo.toml --target-dir target/p06
 
   test:pdf:
     desc: Test the accepted PDF backend without loading a native renderer
