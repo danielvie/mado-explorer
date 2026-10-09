@@ -11,7 +11,7 @@ use std::{
 };
 
 const BATCH_SIZE: usize = 256;
-const QUEUED_BATCHES: usize = 8;
+const QUEUED_RESPONSES: usize = 8;
 const WORKERS: usize = 2;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -41,6 +41,7 @@ pub struct Entry {
     pub name: String,
     pub kind: EntryKind,
     pub modified: String,
+    pub modified_time: Option<SystemTime>,
     pub size: Option<u64>,
     pub metadata_error: Option<String>,
 }
@@ -54,6 +55,7 @@ impl Entry {
             name,
             kind: EntryKind::Unknown,
             modified: "—".into(),
+            modified_time: None,
             size: None,
             metadata_error: None,
         };
@@ -74,7 +76,10 @@ impl Entry {
                 }
                 match metadata.modified() {
                     Ok(value) => match modified_timestamp(value) {
-                        Ok(timestamp) => row.modified = timestamp,
+                        Ok(timestamp) => {
+                            row.modified = timestamp;
+                            row.modified_time = Some(value);
+                        }
                         Err(error) => row.metadata_error = Some(format!("Modified time: {error}")),
                     },
                     Err(error) => row.metadata_error = Some(format!("Modified time: {error}")),
@@ -199,7 +204,10 @@ impl Failure {
 
 #[derive(Debug)]
 pub enum Update {
-    Batch(Vec<Entry>),
+    Snapshot {
+        entries: Arc<Vec<Arc<Entry>>>,
+        metadata_errors: usize,
+    },
     Finished(Result<(), Failure>),
 }
 
@@ -219,7 +227,9 @@ pub enum Status {
 pub struct DirectoryState {
     pub generation: u64,
     pub location: PathBuf,
-    pub entries: Vec<Entry>,
+    pub entries: Arc<Vec<Arc<Entry>>>,
+    pub raw_entries: Arc<Vec<Arc<Entry>>>,
+    pub revision: u64,
     pub metadata_errors: usize,
     pub status: Status,
 }
@@ -229,7 +239,9 @@ impl DirectoryState {
         Self {
             generation: 0,
             location,
-            entries: Vec::new(),
+            entries: Arc::new(Vec::new()),
+            raw_entries: Arc::new(Vec::new()),
+            revision: 0,
             metadata_errors: 0,
             status: Status::Loading,
         }
@@ -239,7 +251,9 @@ impl DirectoryState {
         self.location = location;
         self.generation = generation;
         // Replace rather than clear: release the previous location's paths and allocation.
-        self.entries = Vec::new();
+        self.entries = Arc::new(Vec::new());
+        self.raw_entries = Arc::new(Vec::new());
+        self.revision = 0;
         self.metadata_errors = 0;
         self.status = Status::Loading;
     }
@@ -249,12 +263,13 @@ impl DirectoryState {
             return;
         }
         match response.update {
-            Update::Batch(entries) => {
-                self.metadata_errors += entries
-                    .iter()
-                    .filter(|entry| entry.metadata_error.is_some())
-                    .count();
-                self.entries.extend(entries);
+            Update::Snapshot {
+                entries,
+                metadata_errors,
+            } => {
+                self.raw_entries = entries;
+                self.metadata_errors = metadata_errors;
+                self.revision += 1;
             }
             Update::Finished(result) => {
                 self.status = match result {
@@ -295,10 +310,12 @@ impl DirectoryLoader {
             wake: Condvar::new(),
             generation: AtomicU64::new(0),
         });
-        let (sender, responses) = mpsc::sync_channel(QUEUED_BATCHES);
+        let (sender, responses) = mpsc::sync_channel(QUEUED_RESPONSES);
         let loader = Self { shared, responses };
-        // Ponytail: two workers, one coalesced pending location, and eight 256-row batches
-        // bound stale work/transport. A blocked OS call cannot be cancelled; both workers
+        // Two workers, one coalesced pending location, and eight snapshot/status messages
+        // bound stale work/transport. Snapshots share entry allocations; enumeration
+        // emits at most once per 50 ms after the first batch (plus the final snapshot).
+        // A blocked OS call cannot be cancelled; both workers
         // may be occupied. Upgrade to cancellable platform I/O if measurements require it,
         // not an unbounded thread per navigation. Loaded listings themselves are not capped.
         for index in 0..WORKERS {
@@ -323,11 +340,16 @@ impl DirectoryLoader {
         generation
     }
 
+    #[cfg(test)]
     pub fn drain_into(&self, state: &mut DirectoryState) -> bool {
-        // A fixed batch budget keeps catch-up work per frame bounded, including stale drops.
-        for _ in 0..QUEUED_BATCHES {
+        self.drain(|response| state.apply(response))
+    }
+
+    pub fn drain(&self, mut apply: impl FnMut(Response)) -> bool {
+        // A fixed message budget keeps catch-up work per frame bounded, including stale drops.
+        for _ in 0..QUEUED_RESPONSES {
             match self.responses.try_recv() {
-                Ok(response) => state.apply(response),
+                Ok(response) => apply(response),
                 Err(_) => return false,
             }
         }
@@ -357,32 +379,88 @@ fn worker(shared: Arc<Shared>, sender: SyncSender<Response>, repaint: Arc<dyn Fn
             mailbox.latest.take().unwrap()
         };
         let cancelled = || shared.generation.load(Ordering::SeqCst) != request.generation;
+        let mut entries = Vec::new();
+        let mut metadata_errors = 0;
+        let mut last_snapshot = Instant::now();
         enumerate(&request.location, &cancelled, |update| {
-            let mut response = Response {
+            let update = match update {
+                EnumerationUpdate::Batch(batch) => {
+                    metadata_errors += batch.iter().filter(|e| e.metadata_error.is_some()).count();
+                    entries.extend(batch.into_iter().map(Arc::new));
+                    if entries.len() > BATCH_SIZE
+                        && last_snapshot.elapsed() < Duration::from_millis(50)
+                    {
+                        return true;
+                    }
+                    last_snapshot = Instant::now();
+                    Update::Snapshot {
+                        entries: Arc::new(entries.clone()),
+                        metadata_errors,
+                    }
+                }
+                EnumerationUpdate::Finished(result) => {
+                    // Publish the final data before terminal status, even if the last batch
+                    // was coalesced. Cloning entry handles happens only on this worker.
+                    if !send_response(
+                        &sender,
+                        &cancelled,
+                        &repaint,
+                        Response {
+                            generation: request.generation,
+                            update: Update::Snapshot {
+                                entries: Arc::new(std::mem::take(&mut entries)),
+                                metadata_errors,
+                            },
+                        },
+                    ) {
+                        return false;
+                    }
+                    Update::Finished(result)
+                }
+            };
+            let response = Response {
                 generation: request.generation,
                 update,
             };
-            loop {
-                if cancelled() {
-                    return false;
-                }
-                match sender.try_send(response) {
-                    Ok(()) => {
-                        repaint();
-                        return true;
-                    }
-                    Err(TrySendError::Disconnected(_)) => return false,
-                    Err(TrySendError::Full(value)) => {
-                        response = value;
-                        thread::sleep(Duration::from_millis(5));
-                    }
-                }
-            }
+            send_response(&sender, &cancelled, &repaint, response)
         });
     }
 }
 
-fn enumerate(path: &Path, cancelled: &impl Fn() -> bool, mut emit: impl FnMut(Update) -> bool) {
+fn send_response(
+    sender: &SyncSender<Response>,
+    cancelled: &impl Fn() -> bool,
+    repaint: &Arc<dyn Fn() + Send + Sync>,
+    mut response: Response,
+) -> bool {
+    loop {
+        if cancelled() {
+            return false;
+        }
+        match sender.try_send(response) {
+            Ok(()) => {
+                repaint();
+                return true;
+            }
+            Err(TrySendError::Disconnected(_)) => return false,
+            Err(TrySendError::Full(value)) => {
+                response = value;
+                thread::sleep(Duration::from_millis(5));
+            }
+        }
+    }
+}
+
+enum EnumerationUpdate {
+    Batch(Vec<Entry>),
+    Finished(Result<(), Failure>),
+}
+
+fn enumerate(
+    path: &Path,
+    cancelled: &impl Fn() -> bool,
+    mut emit: impl FnMut(EnumerationUpdate) -> bool,
+) {
     if cancelled() {
         return;
     }
@@ -390,7 +468,9 @@ fn enumerate(path: &Path, cancelled: &impl Fn() -> bool, mut emit: impl FnMut(Up
         Ok(directory) => directory,
         Err(error) => {
             if !cancelled() {
-                emit(Update::Finished(Err(Failure::opening(path, error))));
+                emit(EnumerationUpdate::Finished(Err(Failure::opening(
+                    path, error,
+                ))));
             }
             return;
         }
@@ -410,17 +490,17 @@ fn enumerate(path: &Path, cancelled: &impl Fn() -> bool, mut emit: impl FnMut(Up
         match entry {
             Ok(entry) => batch.push(Entry::read(entry)),
             Err(error) => {
-                if !batch.is_empty() && !emit(Update::Batch(batch)) {
+                if !batch.is_empty() && !emit(EnumerationUpdate::Batch(batch)) {
                     return;
                 }
                 if !cancelled() {
-                    emit(Update::Finished(Err(Failure::from_io(error))));
+                    emit(EnumerationUpdate::Finished(Err(Failure::from_io(error))));
                 }
                 return;
             }
         }
         if batch.len() == BATCH_SIZE || last_batch.elapsed() >= Duration::from_millis(50) {
-            if cancelled() || !emit(Update::Batch(batch)) {
+            if cancelled() || !emit(EnumerationUpdate::Batch(batch)) {
                 return;
             }
             batch = Vec::with_capacity(BATCH_SIZE);
@@ -430,11 +510,11 @@ fn enumerate(path: &Path, cancelled: &impl Fn() -> bool, mut emit: impl FnMut(Up
     if cancelled() {
         return;
     }
-    if !batch.is_empty() && !emit(Update::Batch(batch)) {
+    if !batch.is_empty() && !emit(EnumerationUpdate::Batch(batch)) {
         return;
     }
     if !cancelled() {
-        emit(Update::Finished(Ok(())));
+        emit(EnumerationUpdate::Finished(Ok(())));
     }
 }
 
@@ -469,13 +549,23 @@ mod tests {
 
     fn load(path: &Path) -> DirectoryState {
         let mut state = DirectoryState::new(path.to_owned());
+        let mut entries = Vec::new();
         enumerate(path, &|| false, |update| {
-            state.apply(Response {
-                generation: 0,
-                update,
-            });
+            match update {
+                EnumerationUpdate::Batch(batch) => entries.extend(batch.into_iter().map(Arc::new)),
+                EnumerationUpdate::Finished(result) => state.apply(Response {
+                    generation: 0,
+                    update: Update::Finished(result),
+                }),
+            }
             true
         });
+        state.metadata_errors = entries
+            .iter()
+            .filter(|entry| entry.metadata_error.is_some())
+            .count();
+        state.raw_entries = Arc::new(entries);
+        state.entries = state.raw_entries.clone();
         state
     }
 
@@ -568,7 +658,10 @@ mod tests {
         state.begin(fixture.0.join("b"), 2);
         state.apply(Response {
             generation: 1,
-            update: Update::Batch(std::mem::take(&mut a.entries)),
+            update: Update::Snapshot {
+                entries: std::mem::take(&mut a.entries),
+                metadata_errors: 0,
+            },
         });
         state.apply(Response {
             generation: 1,
@@ -603,16 +696,85 @@ mod tests {
         let mut batches = 0;
         enumerate(&fixture.0, &|| cancelled.get(), |update| {
             match update {
-                Update::Batch(rows) => {
+                EnumerationUpdate::Batch(rows) => {
                     assert!(!rows.is_empty() && rows.len() <= BATCH_SIZE);
                     batches += 1;
                     cancelled.set(true);
                 }
-                Update::Finished(_) => panic!("cancelled work must not finish"),
+                EnumerationUpdate::Finished(_) => panic!("cancelled work must not finish"),
             }
             true
         });
         assert_eq!(batches, 1);
+    }
+
+    #[test]
+    fn background_listing_sort_and_failed_navigation_recover_together() {
+        use crate::{
+            navigation::{Intent, Navigation},
+            sorting::{Column, Sorter},
+        };
+        let fixture = Fixture::new();
+        fs::create_dir(fixture.0.join("folder")).unwrap();
+        fs::write(fixture.0.join("small"), b"").unwrap();
+        fs::write(fixture.0.join("large"), b"abc").unwrap();
+        let loader = DirectoryLoader::new(Arc::new(|| {})).unwrap();
+        let sorter = Sorter::new(Arc::new(|| {})).unwrap();
+        let mut nav = Navigation::new(fixture.0.clone());
+        nav.sort.toggle(Column::Size);
+        nav.sort.toggle(Column::Size);
+        nav.begin(
+            fixture.0.clone(),
+            loader.request(fixture.0.clone()),
+            Intent::Refresh,
+        );
+        let mut requested = None;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while (matches!(nav.current.status, Status::Loading) || nav.sorted_key != Some(nav.key()))
+            && Instant::now() < deadline
+        {
+            loader.drain(|response| {
+                nav.apply(response);
+            });
+            let key = nav.key();
+            if requested != Some(key) {
+                sorter.request(key, nav.visible().raw_entries.clone());
+                requested = Some(key);
+            }
+            if let Some(sorted) = sorter.take() {
+                nav.apply_sorted(sorted);
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(matches!(nav.current.status, Status::Ready));
+        assert_eq!(nav.sorted_key, Some(nav.key()));
+        assert_eq!(
+            nav.current
+                .entries
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            ["folder", "large", "small"]
+        );
+        let retained = nav.current.entries.clone();
+        let missing = fixture.0.join("missing");
+        nav.begin(
+            missing.clone(),
+            loader.request(missing.clone()),
+            Intent::New,
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while nav.pending_location().is_some() && Instant::now() < deadline {
+            loader.drain(|response| {
+                nav.apply(response);
+            });
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(nav.pending_location().is_none());
+        assert_eq!(nav.error.as_ref().unwrap().0, missing);
+        assert_eq!(nav.current.location, fixture.0);
+        assert!(Arc::ptr_eq(&retained, &nav.current.entries));
+        assert!(nav.back.is_empty() && nav.forward.is_empty());
     }
 
     #[test]
@@ -634,7 +796,7 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         assert!(matches!(state.status, Status::Ready));
-        assert_eq!(state.entries.len(), 1);
-        assert_eq!(state.entries[0].name, "only-b");
+        assert_eq!(state.raw_entries.len(), 1);
+        assert_eq!(state.raw_entries[0].name, "only-b");
     }
 }
