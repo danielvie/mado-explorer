@@ -1,4 +1,79 @@
-# P11 PDF preview service handoff
+# PDF preview service handoff
+
+## P14 public Service native integration check
+
+Checkout C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport, branch lane/raster-viewport. Clean accepted starting HEAD f522f04ebc35dffdab2525c3614c782d091abe2e. Changes are restricted to components/pdf-preview-service/tests/native_service.rs, Taskfile.yml and this HANDOFF.md. No production source, dependency/lock, root/shared/sibling edits, redistribution, GUI/GPU, clipboard, elevation, personal-document access or enablement. The existing PDF artifact lane was read-only. Terminal SHA is reported separately for fresh exact-head review; no self-approval or integration.
+
+### Provenance before native execution
+
+Read accepted service/backend production APIs, native loader, backend fixture/probe support, README trust/deployment evidence, SPEC.md/CONTEXT.md/AGENTS.md and main PROGRESS.md P14. Rechecked the existing artifact locally, without downloads:
+
+- Managed root C:/SANDBOX/WORKTREES/mado-explorer/pdf-preview/target/native-probe-pdfium-7881.
+- Archive pdfium-win-x64.tgz, documented provider https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/7881, SHA-256 73cc0de638ac2095e7445bf56a38200a5b7c7ca0e9f4ba144598f2457377ac08.
+- bin/pdfium.dll SHA-256 79d4676b656cfb1abcea88f9ade3b4b0826c5200382db5f4ec72a636c598c118.
+- VERSION reports MAJOR=151, MINOR=0, BUILD=7881, PATCH=0.
+- Complete args.gn checked against the retained release configuration: Windows/x64, release, standalone, non-component, pdf_enable_v8=false, pdf_enable_xfa=false, partition allocator disabled, warnings-as-errors disabled. bin contains only pdfium.dll.
+
+A read-only pwsh Get-FileHash command independently matched both documented hashes before the first native run. The ignored test repeats local VERSION/configuration/bin inventory and SHA-256 verification before Service::start. It requires MADO_P14_TRUSTED_PDFIUM to equal the fixed absolute managed DLL path. Arbitrary/environment-selected libraries are refused, with no fallback or download. The PowerShell command hashes only fixed documented paths, never interpolated operator input. Missing artifacts, missing pwsh, unexpected configuration or hash mismatch fail the explicit test before native loading; they must be reported pending/blocked, not counted as passing. An explicit runtime Windows-x64 guard keeps the named ignored test present and fail-closed on unsupported hosts, rather than allowing a zero-test native task to pass. Default tests never call this gate or load this DLL.
+
+This is verification of the retained operator-controlled artifact, not a sandbox, independent provider attestation, protection against concurrent trusted-directory replacement or packaging approval. The accepted secure loader/sole-initializer constraints remain unchanged.
+
+### Actual API procedure and assertions
+
+One test calls public Service::start with the verified path and one CpuBudget. No private RenderCall/start_inner, direct Renderer calls, alternate engine initialization or GUI is used.
+
+1. Create two targets. Submit an owned Unicode-named two-page PDF at page index 0 in a 400x400 physical box. Mutate the caller's PathBuf immediately afterward. The actual taken response still captures the original native path, generation and metadata. PDF 1.3, page count 2, input byte count, 200x100 point page, 400x200 RGBA output, white background, red/green/blue sample regions and every alpha byte are checked.
+2. Request page index 1 on the independent target. Resize the first target's SAME document to 600x600. Its new actual bitmap is 600x300, with the same RGB content and metadata; the already-taken old response is deterministically no longer current. Page 2 is 100x200 points, rendered 200x400 with its blue center. No assertion guesses that old native work is unfinished.
+3. Replace the first target's document with a separately generated PDF whose red/blue regions are reversed. The taken response has the replacement native path/content/current generation. The earlier sharper frame remains held but is no longer current; the other target remains current.
+4. Through that same public worker, request generated malformed and password-required documents and an owned missing source name. Assert actual Backend/MalformedDocument, PasswordRequired and Io states, nonempty messages, captured paths/generations, current-error routing and unchanged independent target.
+5. Cancel a newly accepted valid request and prove its generation invalidated. A subsequent actual render on the independent target proves previous cancelled work has passed the worker boundary, whether it was pending, active or already complete. No cancelled result is taken. Close a target with a current valid request; the target/generation is retired and take/request refuse UnknownTarget. Another actual independent render proves closed work/allocations have finished. No timing-dependent pending/active claim.
+6. Taken native frames retain exact capacity charges across replacement, errors, cancel, close and actual worker join. The four held frames charge 320,000 + 720,000 + 720,000 + 320,000 = 2,080,000 bytes. Temporary 200x100 barrier frames add/release 80,000 bytes each. Native errors release their working admission. Signal request_stop, observe Stopped, poll try_join until actual successful completion, and verify a subsequent try_join has no handle. Drop service, then each held frame; exact budget totals decrease to zero without underflow/leak.
+7. Verify every generated source byte and owned directory sentinel byte, plus exact root/sentinel entry inventories. The fixture guard claims a fresh directory with create_dir and individual files with create_new, rejects changed/link/unknown-entry cleanup, and removes only its enumerated files and empty claimed directories. No recursive deletion. Confirm the owned root no longer exists after successful cleanup.
+
+The fixture writer copies only the accepted xref pattern and deterministic password constants, plus the new tiny two-page RGB geometry. Built-in Rust tests/std only, no new framework/dependency or binary fixtures. Maximum requested physical box is 600x600. Thirty-second observation timeouts diagnose these tiny generated checks; they are NOT hard cancellation/shutdown deadlines. Source reads/native calls may be uninterruptible, and Service retains its worker ownership and blocking Drop/join fallback on a failed observation. This check stops an idle worker; it does not pretend to interrupt native I/O or quantify PDFium internal/process memory.
+
+### Exact commands and outcomes
+
+All Cargo/Task/Git commands below ran from C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport. Initial provenance command:
+
+```sh
+pwsh -NoProfile -NonInteractive -Command "Get-FileHash -Algorithm SHA256 -LiteralPath 'C:/SANDBOX/WORKTREES/mado-explorer/pdf-preview/target/native-probe-pdfium-7881/pdfium-win-x64.tgz','C:/SANDBOX/WORKTREES/mado-explorer/pdf-preview/target/native-probe-pdfium-7881/bin/pdfium.dll' | Format-List Path,Hash"
+```
+
+Both hashes matched. Implemented and ran:
+
+```sh
+cargo fmt --manifest-path components/pdf-preview-service/Cargo.toml
+cargo fmt --manifest-path components/pdf-preview-service/Cargo.toml -- --check
+cargo check --locked --offline --all-targets --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+MADO_P14_TRUSTED_PDFIUM='C:/SANDBOX/WORKTREES/mado-explorer/pdf-preview/target/native-probe-pdfium-7881/bin/pdfium.dll' cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11 --test native_service native_service_managed_pdfium_7881 -- --exact --ignored --nocapture
+task --taskfile components/pdf-preview-service/Taskfile.yml --list
+task --taskfile components/pdf-preview-service/Taskfile.yml run
+task --taskfile components/pdf-preview-service/Taskfile.yml --dry native TRUSTED_PDFIUM='C:/SANDBOX/WORKTREES/mado-explorer/pdf-preview/target/native-probe-pdfium-7881/bin/pdfium.dll'
+```
+
+Initial fmt/all-target compile/default twenty checks passed, new native check explicitly ignored by default. Initial explicit native run passed one test, zero ignored/failures. Inspection strengthened the test to distinguish same-document resize from document replacement and added an actual close-cleanup worker barrier. No failing checks or production defect were exposed. After that coherent strengthening, reran fmt/check/default test and verified the actual opt-in task wiring:
+
+```sh
+cargo fmt --manifest-path components/pdf-preview-service/Cargo.toml
+cargo fmt --manifest-path components/pdf-preview-service/Cargo.toml -- --check
+cargo check --locked --offline --all-targets --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+task --taskfile components/pdf-preview-service/Taskfile.yml native TRUSTED_PDFIUM='C:/SANDBOX/WORKTREES/mado-explorer/pdf-preview/target/native-probe-pdfium-7881/bin/pdfium.dll'
+git diff --check
+git diff --cached --check
+```
+
+Final fmt and locked offline all-target compile pass. Default suite passes twenty unchanged unit tests, zero failures, plus one explicitly ignored integration test and zero doc tests. After adding that unsupported-host guard, the same fmt/all-target/default-test/native-task commands were rerun successfully on the final code. Actual native task passes one integration test, zero failures/ignored, in 0.48 seconds, with both provenance hashes printed before the public-Service success report. Safe task run passes its unchanged controlled FIFO test without DLL/GUI. Task list and native dry run pass. Diff checks pass. No full root suite, GUI/GPU, benchmark, malicious/OOM input, native package or clean task was run.
+
+### Criterion limits and review gate
+
+P14 now supplies actual public-Service native evidence for the commissioned F08.3 physical output/rerender and F08.5 current-result/read-only/CPU-buffer-lifetime portions. Native malformed/password/missing-source fallbacks also strengthen F08.4 backend evidence. These are partial criteria, NOT complete UI/acceptance verification. Parent owns criterion status, fresh review, approval, promotion and updated-main validation.
+
+Still pending: pane/selection/page controls integration, density/zoom/resize request wiring, old-bitmap UI presentation, input responsiveness, GUI conversion/upload/cache admission, shared image/PDF CPU integration, 128 MiB GPU ownership/eviction, native internal-memory security/update policy, installation/redistribution/license/clean-machine checks, scaling/Narrator/performance and checkpoint clipboard gates. No production preview enablement. Existing controlled tests remain the deterministic proof for forced in-flight/blocked-worker timing and budget-limit/source-growth edge cases. The native check complements, not replaces, those tests.
+
+Everything below records P11/S013-R08 historical evidence. Its original native-service-pending statements are superseded only by this P14 check, not by GUI/GPU or release acceptance.
 
 ## S013-R08 source reservation correction
 
@@ -113,7 +188,7 @@ No focused compile/test failed. One attempted shell append hit Bash backtick sub
 
 ## Remaining gates
 
-- Native actual service rendering against the existing managed hash-verified PDFium 7881 artifact and generated owned PDFs is explicitly pending, not passed. Prior accepted backend evidence is not a substitute for this service probe.
+- P11 originally left native actual service rendering pending. P14 above now supplies the explicit public-Service check against the existing managed hash-verified PDFium 7881 artifact and generated owned PDFs. Prior accepted backend evidence alone was not used as a substitute.
 - GUI pane/selection/page controls, density/resize/zoom-to-request wiring, fresh assignment, old-bitmap handling, actual CPU conversion/upload/cache admission, GPU texture ownership/128 MiB ceiling, eviction and image coordination remain integration work.
 - Keep checkpoint keyboard/accessibility/system-clipboard permission gates, native trust/license/packaging and clean-machine/manual scaling/performance checks. No production preview enablement.
 - Proposed status: F08.3/F08.5 remain partial/in progress. This implements and headlessly checks their commissioned background/current-result/CPU-buffer portions, not complete acceptance.

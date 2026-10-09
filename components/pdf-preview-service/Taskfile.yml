@@ -24,6 +24,15 @@ tasks:
     dir: '{{.ROOT}}'
     cmds:
       - cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+  native:
+    desc: Opt-in public Service native check; requires the exact documented managed PDFium 7881 DLL, verifies archive/DLL hashes and build flags before loading
+    dir: '{{.ROOT}}'
+    requires:
+      vars: [TRUSTED_PDFIUM]
+    env:
+      MADO_P14_TRUSTED_PDFIUM: '{{.TRUSTED_PDFIUM}}'
+    cmds:
+      - cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11 --test native_service native_service_managed_pdfium_7881 -- --exact --ignored --nocapture
   clean:
     desc: Remove only the generated root target/p11 build output
     dir: '{{.ROOT}}'
