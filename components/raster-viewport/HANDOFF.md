@@ -28,11 +28,47 @@ The standalone library depends only on egui =0.36.2, matching the checkout's roo
 - 100% maps one supplied image pixel to one physical display pixel, including current egui UI zoom and monitor density through pixels_per_point.
 - Explicit zoom buttons use 0.8/1.25 factors. Ctrl/command-wheel and native Zoom events zoom around the pointer. Primary-button dragging pans only the captured raster. The painter intersects raster and parent clip rectangles.
 - Manual zoom is bounded to 1%-6400%, extended to include an unusual Fit scale. Pan cannot expose empty space along an overflowing axis; non-overflowing axes remain centered.
-- Raw unsmoothed pointer zoom events are checked against this raster and their preceding pointer position. Moving from a text control into a raster in the same frame does not retarget an earlier zoom. Neighboring instances do not share mode/pan. No explorer shortcuts or text-edit keys are intercepted.
+- Raw unsmoothed pointer zoom events are applied in order at their preceding event-time pointer position, transformed from global to layer-local points. Targeting checks this enabled raster's clipped interaction rectangle and top-most layer at that position, not final hover or final drag capture. Moving from a text control into a raster does not retarget an earlier zoom; moving out does not discard an earlier raster zoom. Outside/text/sibling and invalid events stay unconsumed by this instance. Neighboring instances do not share mode/pan. No explorer shortcuts or text-edit keys are intercepted.
+- Drag-start uses egui's press-relative total displacement, then incremental frame displacement. Both response delta APIs account for layer scaling. Movement before the primary press does not pan; movement after the press in the same input batch does.
 - Same-key texture replacement and display-density changes preserve manual scale and the image-relative center, subject to bounds. Fit remains responsive to resize. New keys reset the view.
 - Zero, negative, nonfinite and unrepresentable dimensions, density and zoom input are refused. State contains only document key, mode, pan and previous pointer position; no workers or cache.
 
-## Validation commands and outcomes
+## S013-R01 correction and validation
+
+- Fix base: 408951307755e5e512893e18ef6138caeec53558, lane/raster-viewport. Fresh exact-head review is pending. No acceptance/integration/enablement claim.
+- Owned changes: src/lib.rs, tests/support/batched_input.rs and this HANDOFF.md, all under components/raster-viewport. Existing src/tests.rs assertions, manifest, lockfile, example and Taskfile are unchanged. Parent-only dirty PROGRESS.md remains unedited and unstaged.
+- Installed egui 0.36.2 definitions inspected: Sense::drag, Response drag_started_by/drag_delta/total_drag_delta/hover_pos, PointerState event processing/press_origin/frame delta, Event ordering and Context layer transforms/layer_id_at. Response total_drag_delta already converts global displacement to layer-local units.
+- No new retained input state. Zoom processing temporarily takes and restores the existing event vector, retaining untargeted/invalid events. This permits event-position layer queries without nested context locks and avoids another event buffer. Each valid targeted Zoom or Ctrl/command-wheel event applies its own scale limit and pointer anchor before the next event.
+- Regression module lives under tests/support and is included only by the library's test build, so existing task test with --lib runs it. Tests inject actual RawInput batches into Context::run_ui with generated textures, no direct pan/zoom calls.
+
+Red check on the original implementation plus new tests:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport/components/raster-viewport && cargo test --offline --locked --target-dir target --lib batched_input -- --nocapture
+```
+
+Exit 101, all five new checks failed. Exact evidence: no-post-press drag center 230 instead of 150, same-frame post-press drag center 250 instead of 170, normalized zoom anchor 0.55 instead of 0.5, raster zoom ending elsewhere stayed 1x instead of 2x, interleaved limit/zoom stayed 64x instead of 32x. No assertion was removed or weakened.
+
+Final coherent correction checks:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport/components/raster-viewport && cargo fmt && cargo fmt --check && cargo check --offline --locked --target-dir target --all-targets && cargo test --offline --locked --target-dir target --lib batched_input -- --nocapture && cargo test --offline --locked --target-dir target --lib
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport/components/raster-viewport && task test
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git diff --check
+```
+
+Passed formatting and locked offline incremental all-target check; six focused checks pass; all thirteen library checks pass, zero failed/ignored. Task test passes the same thirteen using its existing component target convention. Coverage adds pre-press travel, movement after press in the same frame and incremental continuation, translated/scaled layers, zoom-before-move and move-before-zoom for Zoom and Ctrl-wheel, interleaved anchors/scale limits, event-time raster/text/sibling/outside routing and invalid-event retention. A sixth no-op guard confirms neutral targeted zoom preserves Fit mode. All seven existing focus/keyboard, independent viewport, density/aspect, pan limits, resize, replacement and document-reset tests remain unchanged and pass.
+
+Commit inspection is restricted to the three owned paths:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git diff --check && git add -- components/raster-viewport/src/lib.rs components/raster-viewport/tests/support/batched_input.rs components/raster-viewport/HANDOFF.md && git diff --cached --check && git diff --cached --stat && git diff --cached --name-only && git diff --cached -- components/raster-viewport
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git commit -m "Fix raster viewport batched drag and zoom input" && git rev-parse HEAD && git status --short && git diff --check
+```
+
+Diff checks pass. The terminal SHA is reported separately. Native/GPU/Narrator checks remain pending; no root suite, Clippy, source I/O, decoder, cache, clipboard or native probe ran. F07.2/F08.3 remain partial component controls only. Event targeting uses event-time pointer positions with current-frame raster/layer geometry, not an event-time layout replay. Pan remains egui primary-drag response handling, not raw mouse-motion or a kinetic gesture controller. Wait for this lane's fresh review, parent integration/validation, then a new commission against updated main.
+
+## Original P07 validation commands and outcomes
 
 Every shell invocation used an explicit checkout/component cwd. The final coherent code checks were:
 

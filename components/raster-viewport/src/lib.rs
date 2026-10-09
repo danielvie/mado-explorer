@@ -109,67 +109,72 @@ impl RasterViewport {
                 if buttons[3].clicked() {
                     self.zoom(1.25, rect.center(), rect, image_pixels, density, fit);
                 }
-                // Read unsmoothed events only while over our own raster. A wheel event
-                // over a text field or adjacent pane cannot leak through a global delta.
-                if response.hovered()
-                    && let Some(pointer) = response.hover_pos()
-                    && response.interact_rect.contains(pointer)
-                {
+                // Replay unsmoothed events at their pointer position, not final hover.
+                // Take the existing event vector to query layer ownership without nested
+                // context locks; no copy or additional retained input state is needed.
+                if response.enabled() {
                     let from_global = ui.ctx().layer_transform_from_global(response.layer_id);
-                    let factor = ui.input_mut(|input| {
-                        let mut combined = 1.0_f32;
-                        let mut pointer = previous_pointer;
-                        input.events.retain(|event| {
-                            let targeted = pointer.is_some_and(|pos| {
-                                response
-                                    .interact_rect
-                                    .contains(from_global.map_or(pos, |transform| transform * pos))
-                            });
-                            match event {
-                                Event::PointerMoved(pos) | Event::PointerButton { pos, .. } => {
-                                    pointer = Some(*pos);
-                                    true
-                                }
-                                Event::PointerGone => {
-                                    pointer = None;
-                                    true
-                                }
-                                Event::Zoom(factor) if targeted => {
-                                    if factor.is_finite() && *factor > 0.0 {
-                                        combined = (combined * factor).clamp(0.0001, 10000.0);
-                                    }
-                                    false
-                                }
-                                Event::MouseWheel {
-                                    unit,
-                                    delta,
-                                    modifiers,
-                                    ..
-                                } if targeted && (modifiers.ctrl || modifiers.command) => {
-                                    let speed = match unit {
-                                        MouseWheelUnit::Point => 0.005,
-                                        MouseWheelUnit::Line => 0.2,
-                                        MouseWheelUnit::Page => 1.0,
-                                    };
-                                    let amount = delta.y * speed;
-                                    if amount.is_finite() {
-                                        combined = (combined * amount.clamp(-4.0, 4.0).exp())
-                                            .clamp(0.0001, 10000.0);
-                                    }
-                                    false
-                                }
-                                _ => true,
+                    let mut events = ui.input_mut(|input| std::mem::take(&mut input.events));
+                    let mut pointer = previous_pointer;
+                    events.retain(|event| {
+                        match event {
+                            Event::PointerMoved(pos) | Event::PointerButton { pos, .. } => {
+                                pointer = Some(*pos);
+                                return true;
                             }
-                        });
-                        combined
+                            Event::PointerGone => {
+                                pointer = None;
+                                return true;
+                            }
+                            _ => {}
+                        }
+                        let Some(global) = pointer else {
+                            return true;
+                        };
+                        let anchor = from_global.map_or(global, |transform| transform * global);
+                        if !response.interact_rect.contains(anchor)
+                            || ui.ctx().layer_id_at(global) != Some(response.layer_id)
+                        {
+                            return true;
+                        }
+                        let factor = match event {
+                            Event::Zoom(factor) if factor.is_finite() && *factor > 0.0 => *factor,
+                            Event::MouseWheel {
+                                unit,
+                                delta,
+                                modifiers,
+                                ..
+                            } if delta.is_finite() && (modifiers.ctrl || modifiers.command) => {
+                                let speed = match unit {
+                                    MouseWheelUnit::Point => 0.005,
+                                    MouseWheelUnit::Line => 0.2,
+                                    MouseWheelUnit::Page => 1.0,
+                                };
+                                let amount = delta.y * speed;
+                                if !amount.is_finite() {
+                                    return true;
+                                }
+                                amount.clamp(-4.0, 4.0).exp()
+                            }
+                            _ => return true,
+                        };
+                        if factor != 1.0 {
+                            self.zoom(factor, anchor, rect, image_pixels, density, fit);
+                        }
+                        false
                     });
-                    if factor != 1.0 {
-                        self.zoom(factor, pointer, rect, image_pixels, density, fit);
-                    }
+                    ui.input_mut(|input| input.events = events);
                 }
                 if response.dragged_by(PointerButton::Primary) {
                     let drawn = image_pixels * (self.scale(fit) / density);
-                    let delta = response.drag_delta();
+                    // Frame delta includes travel before a press. The start frame
+                    // must instead count only displacement from the press origin.
+                    // Both response deltas already account for layer scaling.
+                    let delta = if response.drag_started_by(PointerButton::Primary) {
+                        response.total_drag_delta().unwrap_or(Vec2::ZERO)
+                    } else {
+                        response.drag_delta()
+                    };
                     if positive(drawn) && delta.is_finite() {
                         self.pan += delta / drawn;
                     }
@@ -273,3 +278,7 @@ fn fit_scale(pixels: Vec2, viewport: Vec2, density: f32) -> Option<f32> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/support/batched_input.rs"]
+mod batched_input;
