@@ -31,7 +31,7 @@ pub struct Navigation {
     query_revision: u64,
     pub show_hidden_system: bool,
     visibility_revision: u64,
-    active_generation: u64,
+    active_generation: Option<u64>,
 }
 
 impl Navigation {
@@ -49,7 +49,7 @@ impl Navigation {
             query_revision: 0,
             show_hidden_system: false,
             visibility_revision: 0,
-            active_generation: 0,
+            active_generation: Some(0),
         }
     }
 
@@ -101,7 +101,7 @@ impl Navigation {
     }
 
     pub fn begin(&mut self, location: PathBuf, generation: u64, intent: Intent) {
-        self.active_generation = generation;
+        self.active_generation = Some(generation);
         self.error = None;
         self.pending = None;
         if intent == Intent::Refresh || location.as_os_str() == self.current.location.as_os_str() {
@@ -117,6 +117,19 @@ impl Navigation {
             let mut directory = DirectoryState::new(location.clone());
             directory.begin(location, generation);
             self.pending = Some(Pending { directory, intent });
+        }
+    }
+
+    pub fn deactivate(&mut self) {
+        self.active_generation = None;
+        self.pending = None;
+        self.sorted_key = None;
+        if matches!(self.current.status, Status::Loading) {
+            self.current.status = Status::Failed(Failure {
+                kind: FailureKind::Other,
+                detail: "Loading paused while tab is inactive; returning refreshes this location."
+                    .into(),
+            });
         }
     }
 
@@ -140,7 +153,7 @@ impl Navigation {
 
     // Successful load, including refresh (path-editor synchronization).
     pub fn apply(&mut self, response: Response) -> bool {
-        if response.generation != self.active_generation {
+        if Some(response.generation) != self.active_generation {
             return false;
         }
         if let Some(pending) = &mut self.pending {
@@ -239,7 +252,7 @@ impl Navigation {
     }
 
     pub fn apply_sorted(&mut self, sorted: Sorted) -> bool {
-        if sorted.key != self.key() {
+        if self.active_generation.is_none() || sorted.key != self.key() {
             return false;
         }
         if let Some(pending) = &mut self.pending {

@@ -1,6 +1,6 @@
 # Mado Explorer
 
-S006a: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S007: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
@@ -13,6 +13,32 @@ task clean                       # removes target only
 task design                      # opens the Excalidraw reference
 task design-test                 # validates the reference
 ```
+
+The single pane now has independent tabs. Use **+** or Ctrl+T to create a fresh
+tab at the active tab's **committed** location (not a still-opening destination).
+Use a tab's **x** button to close it, Ctrl+W to close the active tab, and
+Ctrl+Tab / Ctrl+Shift+Tab to cycle forward/backward. Closing the final tab creates
+a fresh tab at the user's home location; it does not close the window. Home is
+resolved once at startup, and missing/unreadable home contents use normal browsing
+error/retry handling. Tabs do not persist across restarts.
+
+Every tab owns location/history, native-path selection/active row/range anchor,
+filter, sort, hidden/system visibility, path-editor draft/errors and scroll position.
+Switching back refreshes the committed location and reconciles surviving selection.
+Its saved manual scroll position is restored only after a complete fresh projection;
+empty/progressive refresh data and the selected row do not replace that position.
+Keyboard movement still scrolls its new active row into view. A removed entry can
+therefore disappear from selection when that tab's refresh succeeds.
+Pending navigation is cancelled on deactivation without committing history; returning
+refreshes the last committed location rather than leaving a cancelled spinner.
+
+Tab IDs are stable, never reused within the window, and scope editor/table/scroll
+widget state even for two tabs at the same folder. The horizontal tab strip scrolls
+with overflow; new/close/cycle activation reveals the active tab, and the plus button
+stays outside overflow. Hover a tab to see its complete native location. Tab
+shortcuts use exact modifiers and are suspended while a path/filter editor owns the
+input, including its submission/exit frame. Drag reorder and split panes are not yet
+implemented.
 
 Enter a folder path and press Enter/Go, double-click a folder row (or make it the
 active row and press Enter), or use Back, Forward, Up and the breadcrumb buttons.
@@ -64,9 +90,8 @@ Type in Filter to constrain immediate entry **names only**, using case-insensiti
 fuzzy subsequences: `rdtxt` matches `ReadMe.txt`. This is not recursive search,
 path/content search or fuzzy ranking; results retain the chosen column order.
 Clear (or delete the query) restores entries without changing location/history.
-The one current browsing context retains its filter through refresh and ordinary
-navigation, including Back/Forward; each destination is shown with that same query.
-Per-tab ownership will be added with tabs, not simulated now. Counts show displayed /
+Each tab retains its own filter through refresh and ordinary
+navigation, including Back/Forward; each destination is shown with that tab's query. Counts show displayed /
 total entries for a fresh projection, with an incomplete suffix during loading/errors.
 A completed fresh listing with zero matches explicitly says so; an empty folder
 remains distinct. While filter/sort changes are pending, old rows may stay visible,
@@ -105,8 +130,8 @@ selection. File opening shares this boundary; no mutating-command abstraction is
 introduced here.
 Pending destination rows cannot be selected or activated until navigation commits
 and its projection is fresh. Failed destinations preserve the committed selection;
-successful navigation to another location clears it. Selection is scoped to the one current
-browsing context, not yet isolated across tabs/panes.
+successful navigation to another location clears it. Selection is scoped to its tab;
+other tabs do not overwrite it. Pane isolation follows with split panes.
 
 Identity lookup for keyboard movement and range endpoints is intentionally O(n) in
 the displayed entry count; Ctrl+A/range updates and successful-refresh reconciliation
@@ -115,13 +140,13 @@ not been performance-verified. If measured input latency exceeds its budget, bui
 native path-to-index projection on the sorting worker and publish it with the existing
 generation/revision key, rather than retaining row indices across sorting.
 
-No previews, settings, tabs/splits or mutation commands are implemented.
+No previews, settings, split panes or mutation commands are implemented.
 The explorer itself remains read-only, but **externally launched applications may
 edit their files or execute code**; open only files you intend to open.
 Hidden and system entries are **hidden by default**. The explicit **Show
 hidden/system entries** checkbox shows both attribute categories together, including
 folders, in the immediate listing. It is retained through navigation/refresh in the
-current browsing context and is not persisted across restarts. Attributes are read
+owning tab and is not persisted across restarts. Attributes are read
 with non-following metadata on enumeration workers; visibility changes reuse the
 projection worker without re-enumeration. Counts include hidden entries in the total;
 an all-hidden folder is distinct from an empty folder. Attribute/metadata failures
@@ -201,7 +226,8 @@ the explorer does not wait on that call; an unfinished worker is detached and it
 resources are released on return or process teardown. There is no queued launch to
 run after closing, and external applications are not terminated.
 
-Enumeration and metadata reads run on two background workers, with one coalesced
+All tabs share the window's existing active-context services: enumeration and
+metadata reads run on two background workers, with one coalesced
 pending location and a bounded eight-message snapshot/status queue. Enumeration
 still uses batches of at most 256 entries; after the first batch, cumulative
 snapshots are published at most every 50 ms plus the final snapshot. Snapshots
@@ -217,6 +243,12 @@ the previous projection can stay visible with an Updating filter/sort/visibility
 indicator.
 Rows remain virtualized. Loaded listings and their snapshot vectors are not size-capped; no memory/performance acceptance claim has
 been made.
+
+Every activation/refresh receives a new window-wide enumeration generation. Combined
+with the existing data/query/visibility/sort guards, this rejects inactive/closed-tab
+results even when two tabs share a folder. Only the active tab receives worker results;
+no per-tab workers are created. Fonts and the captured-path launcher stay window-owned;
+a launch completion cannot change the active tab's navigation or selection.
 
 Stale enumeration is cancelled between OS calls and rejected by navigation.
 OS calls themselves cannot be interrupted. If both enumeration workers are stuck
@@ -296,6 +328,20 @@ Use only disposable folders containing child folders and small files:
     the committed location. GUI glyph/scaling and actual long-path associations remain
     pending; automated Windows fixtures establish enumeration/native identity only.
 
+12. In a disposable folder with enough entries to scroll, create two tabs at the same
+    location. Give them different selections, filters, sort columns and visibility
+    settings; navigate one to a child and Back. Switch using tab clicks and both cycle
+    shortcuts: state must remain independent. Select an early row, then manually scroll
+    elsewhere and switch away/back: refresh must restore the manual offset, not jump
+    to the row. Keyboard arrows must still reveal the newly active row. Externally
+    remove a selected disposable entry and return: only that tab's refreshed selection
+    should reconcile. Create many tabs, narrow the window and use cycle/new/close:
+    the active label and plus must remain reachable; hover shows the full location.
+    Verify Ctrl+T/W/Tab/Shift+Tab while editing path/filter do not affect tabs, including
+    Enter/Escape exit frames. Close the last tab and confirm a fresh home tab. Do not
+    modify home entries; use only generated fixture entries for changes. This native
+    interactive procedure is pending, not claimed from headless checks.
+
 GUI appearance/interaction, display scaling and Windows Narrator checks still
 require manual verification. S001's process-level startup/close smoke created the
 native window and exited with code 0; it did not verify displayed states. S002
@@ -326,3 +372,11 @@ Long-path enumeration also checks that ordinary paths are not converted to verba
 paths and existing verbatim locations remain verbatim. Live UNC/provider-specific
 normalization and native navigation interaction remain manual pending.
 No destructive operations or personal-folder checks are needed for this slice.
+
+S007 adds focused tab-state and headless egui checks for create/close/cycle/final-home,
+independent history/filter/sort/visibility/native selection/editor state, same-location
+widget IDs, overflow reachability and saved manual scroll after progressive refresh.
+An actual shared-worker disposable fixture confirms per-tab refresh/reconciliation and
+an injected final-home location, without changing the user's real home. The injected
+launch-result regression also closes its original tab before completion; no documents
+are executed. Native interactive tabs, hover/scaling and Narrator checks remain pending.

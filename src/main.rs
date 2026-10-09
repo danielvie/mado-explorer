@@ -5,14 +5,18 @@ mod navigation;
 mod open;
 mod selection;
 mod sorting;
+#[cfg(test)]
+mod tab_tests;
+mod tabs;
 
 use directory::{DirectoryLoader, EntryKind, Status};
 use eframe::egui;
 use navigation::{Intent, Navigation};
 use open::Launcher;
 use selection::Movement;
-use sorting::{Column, Key, Sorter};
+use sorting::{Column, Sorter};
 use std::{path::PathBuf, sync::Arc};
+use tabs::{Tab, TabId};
 
 fn main() -> eframe::Result {
     let location = std::env::args_os()
@@ -37,18 +41,14 @@ fn main() -> eframe::Result {
 
 struct Explorer {
     loader: DirectoryLoader,
-    navigation: Navigation,
     sorter: Sorter,
     launcher: Launcher,
-    requested_sort: Option<Key>,
-    location_text: String,
-    location_editor_focused: bool,
-    location_error: Option<String>,
     font_warning: Option<String>,
-    filter_text: String,
-    row_scroll_offset: f32,
-    row_viewport_height: f32,
-    scroll_to_active: bool,
+    tabs: Vec<Tab>,
+    active: usize,
+    next_tab_id: u64,
+    home: PathBuf,
+    reveal_active_tab: bool,
 }
 
 impl Explorer {
@@ -71,44 +71,237 @@ impl Explorer {
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(move || context.request_repaint());
         let loader = DirectoryLoader::new(repaint.clone())?;
         let sorter = Sorter::new(repaint)?;
+        let home = std::env::home_dir().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Could not resolve the user's home location",
+            )
+        })?;
         let mut app = Self {
             loader,
-            navigation: Navigation::new(location.clone()),
             sorter,
             launcher: Launcher::default(),
-            requested_sort: None,
-            location_text: native::display(location.as_os_str()),
-            location_editor_focused: false,
-            location_error: None,
             font_warning: fonts.warning,
-            filter_text: String::new(),
-            row_scroll_offset: 0.0,
-            row_viewport_height: 0.0,
-            scroll_to_active: false,
+            tabs: vec![Tab::new(TabId(1), location.clone())],
+            active: 0,
+            next_tab_id: 2,
+            home,
+            reveal_active_tab: true,
         };
         app.navigate(location, Intent::Refresh);
         Ok(app)
     }
 
     fn navigate(&mut self, location: PathBuf, intent: Intent) {
-        self.location_error = None;
         let generation = self.loader.request(location.clone());
-        self.navigation.begin(location, generation, intent);
+        self.tabs[self.active].begin(location, generation, intent);
     }
 
     fn request_sort(&mut self) {
-        let key = self.navigation.key();
-        if self.requested_sort != Some(key) {
+        let tab = &mut self.tabs[self.active];
+        let key = tab.navigation.key();
+        if tab.requested_sort != Some(key) {
             self.sorter.request(
                 key,
-                self.navigation.visible().raw_entries.clone(),
-                self.navigation.filter.clone(),
+                tab.navigation.visible().raw_entries.clone(),
+                tab.navigation.filter.clone(),
             );
-            self.requested_sort = Some(key);
+            tab.requested_sort = Some(key);
+        }
+    }
+
+    fn poll_directory(&mut self) -> bool {
+        let tab = &mut self.tabs[self.active];
+        let more = self.loader.drain(|response| {
+            tab.apply(response);
+        });
+        self.request_sort();
+        if let Some(sorted) = self.sorter.take() {
+            self.tabs[self.active].navigation.apply_sorted(sorted);
+        }
+        more
+    }
+
+    fn activate_tab(&mut self, index: usize) {
+        if index == self.active {
+            return;
+        }
+        self.tabs[self.active].deactivate();
+        self.active = index;
+        self.reveal_active_tab = true;
+        self.refresh_active_tab();
+    }
+
+    fn refresh_active_tab(&mut self) {
+        let location = self.tabs[self.active].navigation.current.location.clone();
+        let generation = self.loader.request(location);
+        self.tabs[self.active].resume(generation);
+    }
+
+    fn new_tab(&mut self) {
+        let location = self.tabs[self.active].navigation.current.location.clone();
+        self.insert_tab(location);
+    }
+
+    fn insert_tab(&mut self, location: PathBuf) {
+        let id = TabId(self.next_tab_id);
+        self.next_tab_id = self.next_tab_id.checked_add(1).expect("Tab ID exhausted");
+        self.tabs.push(Tab::new(id, location));
+        self.activate_tab(self.tabs.len() - 1);
+    }
+
+    fn close_tab(&mut self, index: usize) {
+        if self.tabs.len() == 1 {
+            // Allocate the replacement before dropping the final browsing context.
+            self.insert_tab(self.home.clone());
+            self.tabs.remove(0);
+            self.active = 0;
+        } else if index == self.active {
+            self.tabs[self.active].deactivate();
+            self.tabs.remove(index);
+            self.active = index.min(self.tabs.len() - 1);
+            self.reveal_active_tab = true;
+            self.refresh_active_tab();
+        } else {
+            self.tabs.remove(index);
+            if index < self.active {
+                self.active -= 1;
+            }
+        }
+    }
+
+    fn cycle_tab(&mut self, backwards: bool) {
+        let count = self.tabs.len();
+        self.activate_tab((self.active + if backwards { count - 1 } else { 1 }) % count);
+    }
+
+    fn apply_tab_shortcut(&mut self, command: TabShortcut) {
+        match command {
+            TabShortcut::New => self.new_tab(),
+            TabShortcut::Close => self.close_tab(self.active),
+            TabShortcut::Next => self.cycle_tab(false),
+            TabShortcut::Previous => self.cycle_tab(true),
+        }
+    }
+
+    fn tab_strip(&mut self, ui: &mut egui::Ui) {
+        let mut activate = None;
+        let mut close = None;
+        let mut new = false;
+        ui.horizontal(|ui| {
+            let width = (ui.available_width() - 40.0).max(80.0);
+            egui::ScrollArea::horizontal()
+                .id_salt("pane-tabs")
+                .max_width(width)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for (index, tab) in self.tabs.iter().enumerate() {
+                            ui.push_id(tab.id, |ui| {
+                                let location = &tab.navigation.current.location;
+                                let label = location.file_name().unwrap_or(location.as_os_str());
+                                let response = ui
+                                    .add_sized(
+                                        [140.0, 26.0],
+                                        egui::Button::new(native::display(label))
+                                            .selected(index == self.active)
+                                            .truncate(),
+                                    )
+                                    .on_hover_text(native::display(location.as_os_str()));
+                                if index == self.active && self.reveal_active_tab {
+                                    response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                                if response.clicked() {
+                                    activate = Some(index);
+                                }
+                                if ui
+                                    .button("x")
+                                    .on_hover_text(format!(
+                                        "Close tab: {} (Ctrl+W closes the active tab)",
+                                        native::display(location.as_os_str())
+                                    ))
+                                    .clicked()
+                                {
+                                    close = Some(index);
+                                }
+                            });
+                        }
+                    });
+                });
+            new = ui
+                .button("+")
+                .on_hover_text("New tab at the committed location (Ctrl+T)")
+                .clicked();
+        });
+        self.reveal_active_tab = false;
+        if let Some(index) = close {
+            self.close_tab(index);
+        } else if let Some(index) = activate {
+            self.activate_tab(index);
+        } else if new {
+            self.new_tab();
+        }
+        if close.is_some() || activate.is_some() || new {
+            ui.memory_mut(|memory| {
+                if let Some(id) = memory.focused() {
+                    memory.surrender_focus(id);
+                }
+            });
+            ui.ctx().request_repaint();
         }
     }
 
     fn toolbar(&mut self, ui: &mut egui::Ui) -> bool {
+        let tab = &mut self.tabs[self.active];
+        let (editing, command) = ui.push_id(tab.id, |ui| tab.toolbar(ui)).inner;
+        if let Some((location, intent)) = command {
+            self.navigate(location, intent);
+        }
+        editing
+    }
+
+    fn status(&self, ui: &mut egui::Ui) {
+        self.window_status(ui);
+        let tab = &self.tabs[self.active];
+        ui.push_id(tab.id, |ui| tab.status(ui));
+    }
+
+    fn table(&mut self, ui: &mut egui::Ui, editing: bool) -> Option<Activation> {
+        let tab = &mut self.tabs[self.active];
+        ui.push_id(tab.id, |ui| tab.table(ui, editing)).inner
+    }
+}
+
+impl Explorer {
+    fn window_status(&self, ui: &mut egui::Ui) {
+        if let Some(warning) = &self.font_warning {
+            ui.colored_label(egui::Color32::from_rgb(255, 180, 130), "Installed font fallback limited; some Unicode characters may appear as boxes. Hover for details.")
+                .on_hover_text(warning);
+        }
+        if let Some(path) = self.launcher.busy_path() {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(format!("Requesting default application for {}… (one launch at a time; browsing remains available)", native::display(path.as_os_str())));
+            });
+        }
+        if let Some(path) = &self.launcher.refused {
+            ui.colored_label(egui::Color32::from_rgb(255, 180, 130), format!("Did not launch {}: another launch was busy when requested. This request is not queued; retry explicitly when the launch slot is free.", native::display(path.as_os_str())));
+        }
+        if let Some(report) = &self.launcher.report {
+            match &report.result {
+                Ok(()) => {
+                    ui.label(format!("Windows accepted the launch of {}. External application completion is not monitored.", native::display(report.path.as_os_str())));
+                }
+                Err(error) => {
+                    ui.colored_label(egui::Color32::from_rgb(255, 180, 130), format!("Could not launch {}: {}. Browsing location, history and selection retained.", native::display(report.path.as_os_str()), error));
+                }
+            }
+        }
+    }
+}
+
+impl Tab {
+    fn toolbar(&mut self, ui: &mut egui::Ui) -> (bool, Option<(PathBuf, Intent)>) {
         let mut command = None;
         let mut editing = false;
         ui.horizontal(|ui| {
@@ -151,6 +344,8 @@ impl Explorer {
                 command = Some((self.navigation.current.location.clone(), Intent::Refresh));
             }
         });
+        let location_id = self.widget_id("location");
+        let filter_id = self.widget_id("filter");
         ui.horizontal(|ui| {
             ui.strong("Location");
             let width = (ui.available_width() - 55.0).max(120.0);
@@ -158,7 +353,7 @@ impl Explorer {
                 [width, 26.0],
                 egui::TextEdit::singleline(&mut self.location_text)
                     .hint_text("Folder path")
-                    .id_salt("location"),
+                    .id(location_id),
             );
             self.location_editor_focused = input.has_focus();
             editing = input.has_focus() || input.lost_focus();
@@ -203,7 +398,7 @@ impl Explorer {
                 [width, 24.0],
                 egui::TextEdit::singleline(&mut self.filter_text)
                     .hint_text("Fuzzy name filter")
-                    .id(egui::Id::new("filter")),
+                    .id(filter_id),
             );
             editing |= input.has_focus() || input.lost_focus();
             if input.has_focus()
@@ -254,39 +449,13 @@ impl Explorer {
                 None => None,
             };
         }
-        if let Some((location, intent)) = command {
-            self.navigate(location, intent);
-        }
-        editing
+        (editing, command)
     }
 
     fn status(&self, ui: &mut egui::Ui) {
-        if let Some(warning) = &self.font_warning {
-            ui.colored_label(egui::Color32::from_rgb(255, 180, 130), "Installed font fallback limited; some Unicode characters may appear as boxes. Hover for details.")
-                .on_hover_text(warning);
-        }
         if let Some(error) = &self.location_error {
             ui.colored_label(egui::Color32::from_rgb(255, 180, 130), error);
             ui.label("Location, history and selection retained. Edit the path and Go to retry.");
-        }
-        if let Some(path) = self.launcher.busy_path() {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label(format!("Requesting default application for {}… (one launch at a time; browsing remains available)", native::display(path.as_os_str())));
-            });
-        }
-        if let Some(path) = &self.launcher.refused {
-            ui.colored_label(egui::Color32::from_rgb(255, 180, 130), format!("Did not launch {}: another launch was busy when requested. This request is not queued; retry explicitly when the launch slot is free.", native::display(path.as_os_str())));
-        }
-        if let Some(report) = &self.launcher.report {
-            match &report.result {
-                Ok(()) => {
-                    ui.label(format!("Windows accepted the launch of {}. External application completion is not monitored.", native::display(report.path.as_os_str())));
-                }
-                Err(error) => {
-                    ui.colored_label(egui::Color32::from_rgb(255, 180, 130), format!("Could not launch {}: {}. Browsing location, history and selection retained.", native::display(report.path.as_os_str()), error));
-                }
-            }
         }
         if let Some(path) = self.navigation.pending_location() {
             ui.horizontal(|ui| {
@@ -410,7 +579,7 @@ impl Explorer {
         }
         let width = ui.available_width().max(720.0);
         let columns = [width - 440.0, 150.0, 180.0, 86.0];
-        egui::ScrollArea::horizontal().show(ui, |ui| {
+        egui::ScrollArea::horizontal().id_salt(self.widget_id("table-horizontal")).show(ui, |ui| {
             ui.set_min_width(width);
             ui.horizontal(|ui| {
                 for ((heading, column), width) in [
@@ -442,6 +611,7 @@ impl Explorer {
                         SelectionShortcut::Move(movement, shift) => {
                             self.navigation.selection.move_active(&entries, movement, (viewport_height / pitch).floor() as usize, shift);
                             table_focus.request_focus();
+                            self.restore_scroll = false;
                             self.scroll_to_active = true;
                         }
                         SelectionShortcut::All => {
@@ -452,10 +622,13 @@ impl Explorer {
                     }
                 }
             }
-            let directory = self.navigation.visible();
+            let restore = self.restore_scroll && self.scroll_restore_ready();
             let mut scroll = egui::ScrollArea::vertical()
-                .id_salt(("directory", &directory.location))
+                .id_salt(self.widget_id("directory"))
                 .content_margin(egui::Margin::ZERO).auto_shrink([false, false]);
+            if restore {
+                scroll = scroll.vertical_scroll_offset(self.row_scroll_offset);
+            }
             if self.scroll_to_active && selectable {
                 if let Some(index) = self.navigation.selection.active_index(&entries) {
                     scroll = scroll.vertical_scroll_offset(row_scroll_offset(self.row_scroll_offset, viewport_height, pitch, index));
@@ -490,11 +663,47 @@ impl Explorer {
                     });
                 }
             });
-            self.row_scroll_offset = output.state.offset.y;
+            // Empty/progressive projections may clamp egui's local state. They
+            // must not erase the tab's manual offset before fresh complete data.
+            if !self.restore_scroll || restore {
+                self.row_scroll_offset = output.state.offset.y;
+                self.restore_scroll = false;
+            }
             self.row_viewport_height = output.inner_rect.height();
         });
         destination
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TabShortcut {
+    New,
+    Close,
+    Next,
+    Previous,
+}
+
+fn tab_shortcut(ctx: &egui::Context, editing: bool) -> Option<TabShortcut> {
+    if editing {
+        return None;
+    }
+    ctx.input_mut(|input| {
+        for (modifiers, key, command) in [
+            (egui::Modifiers::CTRL, egui::Key::T, TabShortcut::New),
+            (egui::Modifiers::CTRL, egui::Key::W, TabShortcut::Close),
+            (egui::Modifiers::CTRL, egui::Key::Tab, TabShortcut::Next),
+            (
+                egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+                egui::Key::Tab,
+                TabShortcut::Previous,
+            ),
+        ] {
+            if consume_exact_key(input, modifiers, key) {
+                return Some(command);
+            }
+        }
+        None
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -799,7 +1008,7 @@ mod tests {
         }
     }
 
-    fn key_event(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+    pub(super) fn key_event(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
         egui::Event::Key {
             key,
             physical_key: None,
@@ -974,10 +1183,9 @@ mod tests {
             hidden: false,
             system: false,
         });
-        app.navigation.current.entries = Arc::new(vec![file.clone()]);
-        app.navigation
-            .selection
-            .select_all(&app.navigation.current.entries);
+        app.tabs[app.active].navigation.current.entries = Arc::new(vec![file.clone()]);
+        let rows = app.tabs[app.active].navigation.current.entries.clone();
+        app.tabs[app.active].navigation.selection.select_all(&rows);
         let run = |app: &mut Explorer, editing: bool, focused_control: bool, repeat: bool| {
             let mut result = None;
             let mut events = Vec::new();
@@ -1022,13 +1230,16 @@ mod tests {
         assert_eq!(run(&mut app, true, false, false), None); // editor and submission frame
         assert_eq!(run(&mut app, false, true, false), None);
         assert_eq!(run(&mut app, false, false, true), None); // holding Enter is not repeated launch
-        app.navigation.set_filter("captured".into());
+        app.tabs[app.active]
+            .navigation
+            .set_filter("captured".into());
         assert_eq!(run(&mut app, false, false, false), None); // stale projection
-        app.navigation.sorted_key = Some(app.navigation.key());
-        app.navigation.current.status = Status::Loading;
+        app.tabs[app.active].navigation.sorted_key = Some(app.tabs[app.active].navigation.key());
+        app.tabs[app.active].navigation.current.status = Status::Loading;
         assert_eq!(run(&mut app, false, false, false), None); // incomplete filtered listing
-        app.navigation.current.status = Status::Ready;
-        app.navigation
+        app.tabs[app.active].navigation.current.status = Status::Ready;
+        app.tabs[app.active]
+            .navigation
             .begin(PathBuf::from(r"C:\destination"), 7, Intent::New);
         assert_eq!(run(&mut app, false, false, false), None);
     }
@@ -1055,7 +1266,7 @@ mod tests {
             let row = Arc::get_mut(&mut Arc::get_mut(&mut rows).unwrap()[0]).unwrap();
             row.kind = kind;
             row.name = "alpha".into();
-            app.navigation.current.entries = rows;
+            app.tabs[app.active].navigation.current.entries = rows;
             let mut pos = egui::Pos2::ZERO;
             let output = context.run_ui(egui::RawInput::default(), |ui| {
                 app.table(ui, editing);
@@ -1131,11 +1342,12 @@ mod tests {
             hidden: false,
             system: false,
         });
-        app.navigation.current.entries = Arc::new(vec![row]);
-        app.navigation
-            .selection
-            .select_all(&app.navigation.current.entries);
-        let Some(Activation::File(captured)) = active_activation(&app.navigation, false) else {
+        app.tabs[app.active].navigation.current.entries = Arc::new(vec![row]);
+        let rows = app.tabs[app.active].navigation.current.entries.clone();
+        app.tabs[app.active].navigation.selection.select_all(&rows);
+        let Some(Activation::File(captured)) =
+            active_activation(&app.tabs[app.active].navigation, false)
+        else {
             panic!("capture file");
         };
         let (release_tx, release_rx) = mpsc::channel();
@@ -1146,24 +1358,27 @@ mod tests {
                 assert_eq!(path, expected);
                 Err(std::io::Error::from_raw_os_error(5))
             });
-        app.navigation.selection.click(
+        app.tabs[app.active].navigation.selection.click(
             &selection::tests::rows(&["later-selection"]),
             0,
             false,
             false,
         );
-        app.navigation
+        app.tabs[app.active]
+            .navigation
             .begin(PathBuf::from("later-location"), 9, Intent::New);
-        app.navigation.apply(directory::Response {
+        app.tabs[app.active].navigation.apply(directory::Response {
             generation: 9,
             update: directory::Update::Finished(Ok(PathBuf::from("later-location"))),
         });
+        app.new_tab();
+        app.close_tab(0); // the captured launch outlives its original tab
         let history = (
-            app.navigation.current.location.clone(),
-            app.navigation.back.clone(),
-            app.navigation.forward.clone(),
+            app.tabs[app.active].navigation.current.location.clone(),
+            app.tabs[app.active].navigation.back.clone(),
+            app.tabs[app.active].navigation.forward.clone(),
         );
-        let selection = app.navigation.selection.paths.clone();
+        let selection = app.tabs[app.active].navigation.selection.paths.clone();
         release_tx.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         while app.launcher.busy_path().is_some() {
@@ -1177,12 +1392,12 @@ mod tests {
         assert_eq!(
             history,
             (
-                app.navigation.current.location.clone(),
-                app.navigation.back.clone(),
-                app.navigation.forward.clone()
+                app.tabs[app.active].navigation.current.location.clone(),
+                app.tabs[app.active].navigation.back.clone(),
+                app.tabs[app.active].navigation.forward.clone()
             )
         );
-        assert_eq!(app.navigation.selection.paths, selection);
+        assert_eq!(app.tabs[app.active].navigation.selection.paths, selection);
         let context = egui::Context::default();
         let output = context.run_ui(egui::RawInput::default(), |ui| app.status(ui));
         assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text)
@@ -1266,26 +1481,12 @@ mod tests {
     fn virtualized_table_keyboard_keeps_active_visible_and_pauses_pending_rows() {
         for size in [egui::vec2(480.0, 280.0), egui::vec2(1050.0, 700.0)] {
             let context = egui::Context::default();
-            let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
-            let mut app = Explorer {
-                loader: DirectoryLoader::new(repaint.clone()).unwrap(),
-                navigation: Navigation::new(PathBuf::from("root")),
-                sorter: Sorter::new(repaint).unwrap(),
-                launcher: Launcher::default(),
-                requested_sort: None,
-                location_text: "root".into(),
-                location_editor_focused: false,
-                location_error: None,
-                font_warning: None,
-                filter_text: String::new(),
-                row_scroll_offset: 0.0,
-                row_viewport_height: 0.0,
-                scroll_to_active: false,
-            };
+            let mut app = test_app(PathBuf::from("root"));
             let names: Vec<_> = (0..200).map(|i| format!("row-{i}")).collect();
-            app.navigation.current.entries =
+            app.tabs[app.active].navigation.current.entries =
                 selection::tests::rows(&names.iter().map(String::as_str).collect::<Vec<_>>());
-            app.navigation.sorted_key = Some(app.navigation.key());
+            app.tabs[app.active].navigation.sorted_key =
+                Some(app.tabs[app.active].navigation.key());
             for key in [
                 None,
                 Some(egui::Key::End),
@@ -1309,24 +1510,28 @@ mod tests {
                     )
                     .drop_without_applying_deltas();
                 if key.is_some() {
-                    let index = app
+                    let index = app.tabs[app.active]
                         .navigation
                         .selection
-                        .active_index(&app.navigation.current.entries)
+                        .active_index(&app.tabs[app.active].navigation.current.entries)
                         .unwrap();
                     let top = index as f32 * 27.0;
                     assert!(
-                        app.row_scroll_offset <= top + 0.1,
+                        app.tabs[app.active].row_scroll_offset <= top + 0.1,
                         "{size:?}: active top clipped"
                     );
                     assert!(
-                        top + 24.0 <= app.row_scroll_offset + app.row_viewport_height + 0.1,
+                        top + 24.0
+                            <= app.tabs[app.active].row_scroll_offset
+                                + app.tabs[app.active].row_viewport_height
+                                + 0.1,
                         "{size:?}: active bottom clipped"
                     );
                 }
             }
-            let selected = app.navigation.selection.paths.clone();
-            app.navigation
+            let selected = app.tabs[app.active].navigation.selection.paths.clone();
+            app.tabs[app.active]
+                .navigation
                 .begin(PathBuf::from("pending"), 1, Intent::New);
             context
                 .run_ui(
@@ -1339,43 +1544,44 @@ mod tests {
                     },
                 )
                 .drop_without_applying_deltas();
-            assert_eq!(app.navigation.selection.paths, selected);
+            assert_eq!(app.tabs[app.active].navigation.selection.paths, selected);
         }
     }
 
-    fn filter_app() -> Explorer {
+    pub(super) fn test_app(location: PathBuf) -> Explorer {
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
-        let mut app = Explorer {
+        Explorer {
             loader: DirectoryLoader::new(repaint.clone()).unwrap(),
-            navigation: Navigation::new(PathBuf::from("root")),
             sorter: Sorter::new(repaint).unwrap(),
             launcher: Launcher::default(),
-            requested_sort: None,
-            location_text: "root".into(),
-            location_editor_focused: false,
-            location_error: None,
             font_warning: None,
-            filter_text: String::new(),
-            row_scroll_offset: 0.0,
-            row_viewport_height: 0.0,
-            scroll_to_active: false,
-        };
+            tabs: vec![Tab::new(TabId(1), location)],
+            active: 0,
+            next_tab_id: 2,
+            home: PathBuf::from("fixture-home"),
+            reveal_active_tab: true,
+        }
+    }
+
+    pub(super) fn filter_app() -> Explorer {
+        let mut app = test_app(PathBuf::from("root"));
         let mut rows = selection::tests::rows(&["alpha", "beta", "alpine"]);
         for row in Arc::get_mut(&mut rows).unwrap() {
             let row = Arc::get_mut(row).unwrap();
             row.name = native::display(row.path.as_os_str());
         }
-        app.navigation.current.raw_entries = rows;
-        app.navigation.current.status = Status::Ready;
+        app.tabs[app.active].navigation.current.raw_entries = rows;
+        app.tabs[app.active].navigation.current.status = Status::Ready;
         accept_app_filter(&mut app);
         app
     }
 
     fn accept_app_filter(app: &mut Explorer) {
-        assert!(app.navigation.apply_sorted(sorting::project_for_test(
-            app.navigation.key(),
-            app.navigation.visible().raw_entries.clone(),
-            &app.navigation.filter
+        let nav = &mut app.tabs[app.active].navigation;
+        assert!(nav.apply_sorted(sorting::project_for_test(
+            nav.key(),
+            nav.visible().raw_entries.clone(),
+            &nav.filter
         )));
     }
 
@@ -1383,8 +1589,8 @@ mod tests {
     fn s006_visibility_control_updates_freshness_without_navigation_at_narrow_viewport() {
         let context = egui::Context::default();
         let mut app = filter_app();
-        let location = app.navigation.current.location.clone();
-        let before = app.navigation.key();
+        let location = app.tabs[app.active].navigation.current.location.clone();
+        let before = app.tabs[app.active].navigation.key();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(480.0, 280.0));
         let output = context.run_ui(
             egui::RawInput {
@@ -1429,19 +1635,24 @@ mod tests {
                 )
                 .drop_without_applying_deltas();
         }
-        assert!(app.navigation.show_hidden_system);
-        assert_ne!(app.navigation.key(), before);
-        assert!(!app.navigation.rows_selectable());
+        assert!(app.tabs[app.active].navigation.show_hidden_system);
+        assert_ne!(app.tabs[app.active].navigation.key(), before);
+        assert!(!app.tabs[app.active].navigation.rows_selectable());
         accept_app_filter(&mut app);
-        assert!(app.navigation.rows_selectable());
-        assert_eq!(app.navigation.current.location, location);
-        assert!(app.navigation.back.is_empty() && app.navigation.forward.is_empty());
+        assert!(app.tabs[app.active].navigation.rows_selectable());
+        assert_eq!(app.tabs[app.active].navigation.current.location, location);
+        assert!(
+            app.tabs[app.active].navigation.back.is_empty()
+                && app.tabs[app.active].navigation.forward.is_empty()
+        );
         let mut hidden = selection::tests::rows(&["hidden"]);
         Arc::get_mut(&mut Arc::get_mut(&mut hidden).unwrap()[0])
             .unwrap()
             .hidden = true;
-        app.navigation.current.raw_entries = hidden;
-        app.navigation.set_show_hidden_system(false);
+        app.tabs[app.active].navigation.current.raw_entries = hidden;
+        app.tabs[app.active]
+            .navigation
+            .set_show_hidden_system(false);
         accept_app_filter(&mut app);
         let output = context.run_ui(egui::RawInput::default(), |ui| app.status(ui));
         let text = output
@@ -1466,12 +1677,11 @@ mod tests {
     fn s006_path_submission_reports_ambiguous_drive_relative_without_navigation() {
         let context = egui::Context::default();
         let mut app = filter_app();
-        app.location_text = "C:relative".into();
-        let before = app.navigation.key();
-        app.navigation
-            .selection
-            .select_all(&app.navigation.current.entries);
-        let selected = app.navigation.selection.paths.clone();
+        app.tabs[app.active].location_text = "C:relative".into();
+        let before = app.tabs[app.active].navigation.key();
+        let rows = app.tabs[app.active].navigation.current.entries.clone();
+        app.tabs[app.active].navigation.selection.select_all(&rows);
+        let selected = app.tabs[app.active].navigation.selection.paths.clone();
         let output = context.run_ui(egui::RawInput::default(), |ui| {
             app.toolbar(ui);
         });
@@ -1508,19 +1718,23 @@ mod tests {
                 .drop_without_applying_deltas();
         }
         assert!(
-            app.location_error
+            app.tabs[app.active]
+                .location_error
                 .as_ref()
                 .unwrap()
                 .contains("Drive-relative")
         );
-        assert_eq!(app.navigation.key(), before);
-        assert_eq!(app.navigation.selection.paths, selected);
-        assert!(app.navigation.pending_location().is_none());
+        assert_eq!(app.tabs[app.active].navigation.key(), before);
+        assert_eq!(app.tabs[app.active].navigation.selection.paths, selected);
+        assert!(app.tabs[app.active].navigation.pending_location().is_none());
         let output = context.run_ui(egui::RawInput::default(), |ui| app.status(ui));
         assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("Edit the path and Go to retry"))));
         output.drop_without_applying_deltas();
-        app.navigate(app.navigation.current.location.clone(), Intent::Refresh);
-        assert!(app.location_error.is_none());
+        app.navigate(
+            app.tabs[app.active].navigation.current.location.clone(),
+            Intent::Refresh,
+        );
+        assert!(app.tabs[app.active].location_error.is_none());
     }
 
     #[test]
@@ -1539,18 +1753,22 @@ mod tests {
         ] {
             let context = egui::Context::default();
             let mut app = filter_app();
-            app.filter_text = "al".into();
-            app.navigation.set_filter("al".into());
+            app.tabs[app.active].filter_text = "al".into();
+            app.tabs[app.active].navigation.set_filter("al".into());
             accept_app_filter(&mut app);
-            app.navigation
+            let rows = app.tabs[app.active].navigation.current.entries.clone();
+            app.tabs[app.active]
+                .navigation
                 .selection
-                .click(&app.navigation.current.entries, 0, false, false);
-            let selected = app.navigation.selection.paths.clone();
-            let key_before = app.navigation.key();
+                .click(&rows, 0, false, false);
+            let selected = app.tabs[app.active].navigation.selection.paths.clone();
+            let key_before = app.tabs[app.active].navigation.key();
             context
                 .run_ui(egui::RawInput::default(), |ui| {
                     app.toolbar(ui);
-                    ui.memory_mut(|memory| memory.request_focus(egui::Id::new("filter")));
+                    ui.memory_mut(|memory| {
+                        memory.request_focus(app.tabs[app.active].widget_id("filter"))
+                    });
                 })
                 .drop_without_applying_deltas();
             context
@@ -1567,11 +1785,11 @@ mod tests {
                 )
                 .drop_without_applying_deltas();
             assert_eq!(
-                app.navigation.key(),
+                app.tabs[app.active].navigation.key(),
                 key_before,
                 "editing must not refresh/navigate"
             );
-            assert_eq!(app.navigation.selection.paths, selected);
+            assert_eq!(app.tabs[app.active].navigation.selection.paths, selected);
             if key == egui::Key::A {
                 context
                     .run_ui(
@@ -1585,11 +1803,11 @@ mod tests {
                     )
                     .drop_without_applying_deltas();
                 assert_eq!(
-                    app.filter_text, "be",
+                    app.tabs[app.active].filter_text, "be",
                     "Ctrl+A selected input text, not rows"
                 );
-                assert_eq!(app.navigation.filter, "be");
-                assert!(!app.navigation.rows_selectable());
+                assert_eq!(app.tabs[app.active].navigation.filter, "be");
+                assert!(!app.tabs[app.active].navigation.rows_selectable());
             }
         }
     }
@@ -1598,11 +1816,13 @@ mod tests {
     fn filter_table_commands_use_only_fresh_complete_visible_rows() {
         let context = egui::Context::default();
         let mut app = filter_app();
-        app.navigation
+        let rows = app.tabs[app.active].navigation.current.entries.clone();
+        app.tabs[app.active]
+            .navigation
             .selection
-            .click(&app.navigation.current.entries, 2, false, false); // beta
-        let selected = app.navigation.selection.paths.clone();
-        app.navigation.set_filter("al".into());
+            .click(&rows, 2, false, false); // beta
+        let selected = app.tabs[app.active].navigation.selection.paths.clone();
+        app.tabs[app.active].navigation.set_filter("al".into());
         let run = |app: &mut Explorer, keys: Vec<egui::Event>| {
             let mut destination = None;
             context
@@ -1628,7 +1848,10 @@ mod tests {
                 .drop_without_applying_deltas();
             destination
         };
-        assert_eq!(active_activation(&app.navigation, false), None);
+        assert_eq!(
+            active_activation(&app.tabs[app.active].navigation, false),
+            None
+        );
         assert_eq!(
             run(
                 &mut app,
@@ -1639,15 +1862,15 @@ mod tests {
             ),
             None
         );
-        assert_eq!(app.navigation.selection.paths, selected);
+        assert_eq!(app.tabs[app.active].navigation.selection.paths, selected);
         accept_app_filter(&mut app);
-        assert!(app.navigation.selection.paths.is_empty());
+        assert!(app.tabs[app.active].navigation.selection.paths.is_empty());
         run(
             &mut app,
             vec![key_event(egui::Key::A, egui::Modifiers::CTRL)],
         );
         assert_eq!(
-            app.navigation.selection.paths,
+            app.tabs[app.active].navigation.selection.paths,
             [PathBuf::from("alpha"), PathBuf::from("alpine")]
                 .into_iter()
                 .collect()
@@ -1659,9 +1882,12 @@ mod tests {
             ),
             Some(Activation::Folder(PathBuf::from("alpha")))
         );
-        let selected = app.navigation.selection.paths.clone();
-        app.navigation.current.status = Status::Loading;
-        assert_eq!(active_activation(&app.navigation, false), None);
+        let selected = app.tabs[app.active].navigation.selection.paths.clone();
+        app.tabs[app.active].navigation.current.status = Status::Loading;
+        assert_eq!(
+            active_activation(&app.tabs[app.active].navigation, false),
+            None
+        );
         assert_eq!(
             run(
                 &mut app,
@@ -1673,30 +1899,29 @@ mod tests {
             ),
             None
         );
-        assert_eq!(app.navigation.selection.paths, selected);
-        app.navigation.current.status = Status::Ready;
-        app.navigation.set_filter(String::new());
+        assert_eq!(app.tabs[app.active].navigation.selection.paths, selected);
+        app.tabs[app.active].navigation.current.status = Status::Ready;
+        app.tabs[app.active].navigation.set_filter(String::new());
         accept_app_filter(&mut app);
-        assert_eq!(app.navigation.selection.paths, selected);
+        assert_eq!(app.tabs[app.active].navigation.selection.paths, selected);
         run(
             &mut app,
             vec![key_event(egui::Key::A, egui::Modifiers::CTRL)],
         );
-        assert_eq!(app.navigation.selection.paths.len(), 3);
+        assert_eq!(app.tabs[app.active].navigation.selection.paths.len(), 3);
     }
 
     #[test]
     fn filter_clear_control_restores_rows_without_navigation_at_narrow_viewport() {
         let context = egui::Context::default();
         let mut app = filter_app();
-        app.filter_text = "al".into();
-        app.navigation.set_filter("al".into());
+        app.tabs[app.active].filter_text = "al".into();
+        app.tabs[app.active].navigation.set_filter("al".into());
         accept_app_filter(&mut app);
-        app.navigation
-            .selection
-            .select_all(&app.navigation.current.entries);
-        let selected = app.navigation.selection.paths.clone();
-        let location = app.navigation.current.location.clone();
+        let rows = app.tabs[app.active].navigation.current.entries.clone();
+        app.tabs[app.active].navigation.selection.select_all(&rows);
+        let selected = app.tabs[app.active].navigation.selection.paths.clone();
+        let location = app.tabs[app.active].navigation.current.location.clone();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(480.0, 280.0));
         let output = context.run_ui(
             egui::RawInput {
@@ -1745,13 +1970,19 @@ mod tests {
                 )
                 .drop_without_applying_deltas();
         }
-        assert!(app.filter_text.is_empty() && app.navigation.filter.is_empty());
-        assert!(!app.navigation.rows_selectable());
+        assert!(
+            app.tabs[app.active].filter_text.is_empty()
+                && app.tabs[app.active].navigation.filter.is_empty()
+        );
+        assert!(!app.tabs[app.active].navigation.rows_selectable());
         accept_app_filter(&mut app);
-        assert_eq!(app.navigation.current.entries.len(), 3);
-        assert_eq!(app.navigation.selection.paths, selected);
-        assert_eq!(app.navigation.current.location, location);
-        assert!(app.navigation.back.is_empty() && app.navigation.forward.is_empty());
+        assert_eq!(app.tabs[app.active].navigation.current.entries.len(), 3);
+        assert_eq!(app.tabs[app.active].navigation.selection.paths, selected);
+        assert_eq!(app.tabs[app.active].navigation.current.location, location);
+        assert!(
+            app.tabs[app.active].navigation.back.is_empty()
+                && app.tabs[app.active].navigation.forward.is_empty()
+        );
     }
 
     #[test]
@@ -1773,7 +2004,7 @@ mod tests {
             text
         };
         assert!(status_text(&app).contains("3 / 3 entries displayed"));
-        app.navigation.set_filter("zz".into());
+        app.tabs[app.active].navigation.set_filter("zz".into());
         let pending = status_text(&app);
         assert!(
             pending.contains("Updating filter/sort/visibility"),
@@ -1783,10 +2014,10 @@ mod tests {
         accept_app_filter(&mut app);
         let fresh = status_text(&app);
         assert!(fresh.contains("0 / 3 entries displayed") && fresh.contains("No names match"));
-        app.navigation.current.status = Status::Loading;
+        app.tabs[app.active].navigation.current.status = Status::Loading;
         assert!(!status_text(&app).contains("No names match"));
-        app.navigation.current.status = Status::Ready;
-        app.navigation.set_filter(String::new());
+        app.tabs[app.active].navigation.current.status = Status::Ready;
+        app.tabs[app.active].navigation.set_filter(String::new());
         accept_app_filter(&mut app);
         assert!(status_text(&app).contains("3 / 3 entries displayed"));
     }
@@ -1804,7 +2035,7 @@ mod tests {
             });
             assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == expected)));
             output.drop_without_applying_deltas();
-            app.navigation.sort.toggle(Column::Name);
+            app.tabs[app.active].navigation.sort.toggle(Column::Name);
         }
     }
 
@@ -1856,27 +2087,26 @@ impl eframe::App for Explorer {
         if self.launcher.busy_path().is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
-        let mut committed = false;
-        let more = self.loader.drain(|response| {
-            committed |= self.navigation.apply(response);
-        });
-        if committed && !self.location_editor_focused {
-            self.location_text = native::display(self.navigation.current.location.as_os_str());
-        }
-        self.request_sort();
-        if let Some(sorted) = self.sorter.take() {
-            if self.navigation.apply_sorted(sorted) {
-                self.scroll_to_active = true;
-            }
-        }
-        if more {
+        if self.poll_directory() {
             ctx.request_repaint();
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ui, |ui| {
+            self.tab_strip(ui);
             let editing = self.toolbar(ui);
+            if let Some(command) = tab_shortcut(ui.ctx(), editing) {
+                self.apply_tab_shortcut(command);
+                ui.ctx().memory_mut(|memory| {
+                    if let Some(id) = memory.focused() {
+                        memory.surrender_focus(id);
+                    }
+                });
+                // No old-context row command can run in this switching frame.
+                ui.ctx().request_repaint();
+                return;
+            }
             ui.separator();
             self.status(ui);
             ui.separator();
