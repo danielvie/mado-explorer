@@ -1,0 +1,26 @@
+version: '3'
+
+dir: '{{.TASKFILE_DIR}}'
+
+tasks:
+  default:
+    desc: List component tasks
+    cmds:
+      - task --list
+  run:
+    desc: Render generated selection snapshots headlessly, without filesystem or desktop access
+    cmds:
+      - cargo run --locked --offline --target-dir target --example generated
+  test:
+    desc: Run focused headless egui selection-summary regressions
+    cmds:
+      - cargo test --locked --offline --target-dir target --test summary_ui
+  check:
+    desc: Check formatting and compile all component targets
+    cmds:
+      - cargo fmt --check
+      - cargo check --locked --offline --target-dir target --all-targets
+  clean:
+    desc: Remove only this component's target build output
+    cmds:
+      - cargo clean --target-dir target
