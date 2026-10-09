@@ -58,6 +58,8 @@ Workers may propose statuses in their handoff but do not edit criterion statuses
 
 Tests use disposable directories with generated fixtures. Prefer Rust's built-in tests and standard library helpers; add dependencies only for a concrete requirement. Keep operation tests independent of the GUI.
 
+Keep source and documentation edits UTF-8. Prefer edit/write tools or Node's explicit UTF-8 file operations; if Python is necessary, use uv/uvx and explicit UTF-8 encoding. Windows default encodings caused avoidable failures in earlier slices.
+
 ## Task contract
 
 Keep Taskfile.yml current. After application bootstrap, task run launches the explorer, task test runs its automated checks, task clean removes generated build output only, and task design opens the existing layout. Include descriptions and retain the default task listing available tasks. Track Cargo.lock for this application.

@@ -1,6 +1,6 @@
 # Mado Explorer
 
-S004: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S005: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
@@ -15,6 +15,9 @@ task design-test                 # validates the reference
 
 Enter a folder path and press Enter/Go, double-click a folder row (or make it the
 active row and press Enter), or use Back, Forward, Up and the breadcrumb buttons.
+Double-click a regular file or make it the active row and press Enter to request
+its Windows default application. Only that row opens, even with multiple selections;
+selection, filtering, refresh and browsing never automatically launch a file.
 Alt+Left/Right/Up navigate; Refresh/F5 reloads. These shortcuts are suspended while
 the path or filter editor has focus (including its submitting frame). Relative typed
 paths resolve against the **committed** location, including when a new destination
@@ -65,7 +68,8 @@ Down/Page Down/Home start at the first row and Up/Page Up/End at the last row. P
 movement replaces selection; a missing anchor falls back to the active row or target.
 Path/filter-editor focus (including the frame that submits it) suspends browsing keys;
 Ctrl+A selects editor text, not rows. Escape exits filter editing without clearing it;
-Enter on another focused control is not also folder activation.
+Enter on another focused control is not also row activation. Holding Enter does not
+repeat file launches.
 
 Refresh retains selection/active/anchor during empty or progressive snapshots and
 failed reads. Only a successfully completed listing removes vanished paths; surviving
@@ -74,7 +78,8 @@ paths and remove hidden active/anchor identities. Still-visible selections survi
 clearing never resurrects hidden prior selections. Ctrl+A selects visible entries only.
 Progressive snapshots do not prove that a selected path disappeared. Future file
 commands must share `Navigation::rows_selectable` and capture only fresh visible
-selection; no mutating-command abstraction or file command is introduced here.
+selection. File opening shares this boundary; no mutating-command abstraction is
+introduced here.
 Pending destination rows cannot be selected or activated until navigation commits
 and its projection is fresh. Failed destinations preserve the committed selection;
 successful navigation to another location clears it. Selection is scoped to the one current
@@ -87,9 +92,11 @@ not been performance-verified. If measured input latency exceeds its budget, bui
 native path-to-index projection on the sorting worker and publish it with the existing
 generation/revision key, rather than retaining row indices across sorting.
 
-No regular-file opening, previews, settings, tabs/splits or
-mutations are implemented. Hidden entries are included. Paths used for folder
-activation, row identity, breadcrumbs and history stay native/lossless;
+No previews, settings, tabs/splits or mutation commands are implemented.
+The explorer itself remains read-only, but **externally launched applications may
+edit their files or execute code**; open only files you intend to open.
+Hidden entries are included. Paths used for folder/file activation, row identity,
+breadcrumbs and history stay native/lossless;
 display/path-editor text is lossy for non-Unicode names. Submitting the unchanged
 displayed current path retains its native path instead of reparsing lossy text.
 
@@ -98,6 +105,31 @@ regular-file sizes in bytes. `—` means unknown/not applicable, never zero fold
 size. Metadata errors remain attached to their rows and can be read by hovering
 names. Links/reparse points are labelled and not followed for metadata or folder
 activation.
+
+File opening captures the complete native `PathBuf` when invoked, never a display
+string or a later selection. A bounded launch worker rechecks that it is still a
+regular file (not a folder/reparse point), then uses `ShellExecuteExW` with the
+`open` verb, UTF-16 paths, no command shell, no parameters and no explicit elevation.
+Absolute filesystem paths are required; embedded NULs, relative paths, URIs and
+non-filesystem device namespaces are rejected. No associations/registry are changed.
+Windows security prompts are not suppressed; the explorer never requests `runas`.
+
+Only one launch can be in flight, with no hidden queue or automatic retry. The
+status area identifies the captured busy path; another file-open request is visibly
+refused and must be explicitly retried later. Folder navigation and selection remain
+available while the shell works. Failures show the captured path and OS error without
+changing browsing location/history/selection, even if the user navigated elsewhere.
+Success means Windows accepted the request, **not** that the external application
+rendered the file or finished. External application lifetime is not monitored.
+Ordinary shell error dialogs are suppressed in favor of the explorer's error status.
+
+The worker initializes/releases its own COM STA and completes shell/DDE work before
+returning; no process handle is requested. Its thread handle is retained and joined
+only after completion. Shell extensions/OS calls are not interruptible: a stuck
+launch remains visibly busy and prevents further file launches, not browsing. Closing
+the explorer does not wait on that call; an unfinished worker is detached and its
+resources are released on return or process teardown. There is no queued launch to
+run after closing, and external applications are not terminated.
 
 Enumeration and metadata reads run on two background workers, with one coalesced
 pending location and a bounded eight-message snapshot/status queue. Enumeration
@@ -149,8 +181,8 @@ Use only disposable folders containing child folders and small files:
    Use keyboard-only arrows, Home/End, Page Up/Down and Shift at the first/last rows
    and in an empty folder. The bordered active row must stay visible while scrolling.
    With the path editor focused, Ctrl+A must select text; arrows/Home/End/Page keys
-   and Enter must not also select rows or activate a folder. Enter on a regular file
-   does nothing in this slice.
+   and Enter must not also select rows or activate a file/folder. Enter on another
+   focused control must not launch the active row.
 7. Select multiple disposable entries; externally remove one, then refresh. Surviving
    selections must remain through loading and the vanished one must disappear only
    after successful completion. Test a failed destination with selection, followed
@@ -169,6 +201,18 @@ Use only disposable folders containing child folders and small files:
    must explain the pause. Refresh and Back/Forward retain the query. In Filter,
    Ctrl+A/arrows/Enter/Alt navigation/F5 must not affect browsing; Escape exits editing.
    Resize to the narrow viewport with all controls still reachable.
+10. Prepare only disposable small text documents (including Unicode, spaces, `&`
+    and parentheses) with a known safe association. Double-click a regular file,
+    then use active-row Enter; confirm the expected external application receives
+    the intended file. Select multiple rows and verify only the active/clicked file
+    opens. Do not hold Enter to trigger repeated launches. Folder activation still
+    navigates internally. Test an unassociated extension and a file removed after
+    listing: failure must identify the captured file, leave browsing usable and not
+    modify it. While a launch is busy, another request must be visibly refused,
+    never silently queued. Navigate/select elsewhere before a delayed result arrives;
+    it must not navigate back or change that selection. Recheck path/filter editor
+    focus and submission, pending navigation and stale filter/sort rows: no launch.
+    These real-association GUI checks are pending, not covered by callback tests.
 
 GUI appearance/interaction, display scaling and Windows Narrator checks still
 require manual verification. S001's process-level startup/close smoke created the
@@ -178,5 +222,9 @@ checks. S003 adds selection-state, reconciliation, whole-row hit testing, editor
 ownership and virtualized keyboard-scroll regressions. S004 adds matching/projection
 staleness, authoritative visible-selection reconciliation, command pause/recovery,
 fresh count/no-match display and real headless filter-editor ownership checks.
-These are not a foreground-capture or interactive GUI acceptance claim.
+S005 adds native UTF-16/argument validation, fresh file/folder activation routing,
+headless double-click/Enter guards, bounded injected launch/failure capture, and
+late-result browsing preservation. Automated launch tests never execute documents
+or programs and never alter file associations; missing-file preflight returns before
+calling the shell. These are not a foreground-capture or interactive GUI acceptance claim.
 No destructive operations or personal-folder checks are needed for this slice.
