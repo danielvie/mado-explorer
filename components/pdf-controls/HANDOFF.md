@@ -48,9 +48,11 @@ Use one controller per pane and a stable, unique caller pane salt. Never derive 
 
 Explicit document/metadata epochs reject inherited opening/held activation keys and old primary press/release gestures. Primary press captures the immutable pane/document/metadata/page target; release after any newer page request is stale even if the widget ID and metadata remain unchanged. Keyboard navigation still captures its current target when explicitly invoked. Only owned stale focus is reset. New-document TextEdit state resets, but same-document metadata keeps the editor's focus, cursor/selection and undo history. No global egui data/cache clearing, forced cardinal navigation, modal layer or window-wide input consumption. Enter/Space are consumed only when an allowed PDF control owns the corresponding activation key. Text editing, unrelated pane input and modal/disabled parent ownership remain available.
 
-On layout retries, the editor still registers focus interest but uses an immutable display buffer and restores its own cursor/state plus an independent snapshot of its undoer's contents. `TextEditState::clone` alone does not snapshot history. This avoids repeated edits and history advancement without surrendering current editor focus. Actions run once per frame. The pinned egui 0.36.2 child-Ui auto-ID rule is used to identify the three button IDs before drawing; tests compare it with the actual Response IDs. An egui upgrade must retain/recheck this contract.
+On layout retries, the editor still registers focus interest but uses an immutable display buffer and restores its own TextEditState/cursor without surrendering current editor focus. Default egui `run_ui` moves volatile editing commands into the first pass only. No independent Undoer copy/restore is needed or provided for artificial command reinjection. Actions run once per frame. The pinned egui 0.36.2 child-Ui auto-ID rule is used to identify the three button IDs before drawing; tests compare it with the actual Response IDs. An egui upgrade must retain/recheck this contract.
 
-## S013-R07 correction evidence
+## Archived S013-R07 experiment and proven corrections
+
+The alternative commit `4bd4fa5a8cf7cf0e62cc5c0c51e40ff9570979db` remains in branch history. Its conditional undo experiment is not an ordinary-host defect or a justification for the current production implementation. Supervisor clarification of reviewer `bc2626b6-44ff-406` withdrew that blocker. R09 below removes only the unsupported undo correction; the independently reproduced pointer-target and draft corrections remain.
 
 - Frozen start: `c0d6fbf423d9120f2c18d8adf8e45bb29516e117`, clean `lane/conflict-dialog`.
 - Rework writes only `components/pdf-controls/src/lib.rs`, `components/pdf-controls/src/tests.rs` and this handoff. Existing 24 behavior checks and assertions remain unchanged.
@@ -58,8 +60,8 @@ On layout retries, the editor still registers focus interest but uses an immutab
 
 Pinned SDK source read at `C:/Users/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egui-0.36.2/src/`:
 
-- `widgets/text_edit/state.rs` has an `Arc<Mutex<TextEditUndoer>>` inside cloned state. Public `undoer()` clones its contents; `set_undoer()` replaces those contents. Rework captures `(state, state.undoer())` before retry rendering, then restores the independent contents before storing state. No private SDK field access or dependency patch.
-- `widgets/text_edit/builder.rs` processes undo/redo and feeds history even for an immutable text buffer. A read-only retry buffer alone cannot protect history.
+- `widgets/text_edit/state.rs` has an `Arc<Mutex<TextEditUndoer>>` inside cloned state. Public `undoer()` clones its contents; `set_undoer()` replaces those contents. Alternative 4bd captured `(state, state.undoer())` before retry rendering and restored the independent contents before storing state. The shared Arc observation is true, but does not prove default-host history corruption. R09 removes that production logic.
+- `widgets/text_edit/builder.rs` processes undo/redo and feeds history even for an immutable text buffer. Under the artificial reinjected-command condition this advanced history. It does not establish a default `run_ui` failure.
 - `util/undoer.rs` provides `add_undo`, `undo` and `redo`. Regression seeds three points from actual headless editor drafts, then checks real Ctrl+Z/Ctrl+Y changes, cursor/focus stability across three discard passes and subsequent history.
 - `context.rs` `run_dyn` uses `new_input.take()` after pass zero. Plain default `run_ui` discard does not replay volatile key events, and the initial plain-discard probe passed on the frozen start. The retained-command regression explicitly keeps the owned Ctrl+Z/Y event on retry via `input_mut`, simulating a host that retains editing commands. This condition is documented, not presented as default egui behavior. It fails on the frozen implementation because retry editing advances the shared history while text remains unchanged. No actual GUI claim.
 
@@ -76,9 +78,9 @@ cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml
 - Retained Ctrl+Z over three discard passes left text `3` but destroyed redo to `4`: `undoer().redo(current).unwrap()` failed with None. The initial plain-discard variant passed for the SDK reason above.
 - First combined red run also exposed an unapplied test `TexturesDelta` destructor panic during draft assertion unwinding. The new fixture clears test deltas before assertions; separate red draft rerun reports two ordinary assertion failures. No production workaround and no old test changed.
 
-First coherent fix passed all four new focused checks and all 28 component checks. The final fixture strengthens metadata coverage with both committed pages 1 and 8. Independent exact-head review is still required, including the retained-command harness condition.
+Alternative 4bd passed all four new focused checks and all 28 component checks. The final fixture strengthens metadata coverage with both committed pages 1 and 8. The undo test's retained-command condition was subsequently withdrawn as a supported-host blocker. The following commands/results are archived 4bd evidence, not R09 reruns.
 
-Final rework commands, all from explicit `cd C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog`:
+Archived rework commands, all from explicit `cd C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog`:
 
 ```text
 cargo fmt --manifest-path components/pdf-controls/Cargo.toml
@@ -93,6 +95,42 @@ git diff --cached --check
 Final results: formatting and locked/offline all-target check passed; focused tests 4 passed, 0 failed/ignored; full suite 28 passed, 0 failed/ignored, plus 0 doc tests; diff checks passed. Only the three assigned paths changed. Component-only terminal commit is reported in the worker handoff, not self-approved here.
 
 SDK/public API limits and all future-host gates below remain unchanged. Manual UI, DPI, Narrator, PDF rendering and root integration are unavailable/not performed. No full criterion completion claim.
+
+## S013-R09 supported-host correction
+
+- Frozen start: clean `lane/conflict-dialog`, `4bd4fa5a8cf7cf0e62cc5c0c51e40ff9570979db`.
+- Goal: minimal P10 patch for the supported default egui host, not a general retry robustness framework.
+- Exact write boundary: `components/pdf-controls/src/lib.rs`, `components/pdf-controls/src/tests.rs`, `components/pdf-controls/HANDOFF.md`.
+- `lib.rs` removes only the retry-time `state.undoer()` deep copy, tuple snapshot and `state.set_undoer()` replacement. It restores the original `TextEditState::load`/`store` behavior and updates its comment. No new allocation logic or undo framework.
+- Pointer press still captures its immutable target. Dirty draft tracking, metadata-state/focus/history preservation and explicit submission behavior remain unchanged from 4bd.
+- `tests.rs` removes only retry-time `ctx.input_mut` command reinjection and its artificial-host comment, and renames the undo check to `r09_default_layout_retries_preserve_real_undo_redo_history`. Three public `add_undo` points, actual Ctrl+Z/Ctrl+Y input, three `request_discard` passes, text/history/cursor/focus assertions and subsequent undo/redo checks all remain. No assertion changed, weakened or removed. All original 24 checks and the three independently red pointer/draft regressions remain unchanged.
+
+Pinned SDK proof, reread during R09 under `C:/Users/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egui-0.36.2/src/`:
+
+- `context.rs:855`, `Context::run_dyn`: every pass calls `self.begin_pass(new_input.take())`.
+- `data/input/raw_input.rs:120-143`, `RawInput::take`: documented volatile-input move, including `events: core::mem::take(&mut self.events)`. Ctrl+Z/Y is not replayed on retry.
+- `util/undoer.rs:185-189`, `Undoer::feed_state`: a state equal to the latest undo point clears flux, not redo. Retry feeding the post-undo state therefore preserves redo.
+- `widgets/text_edit/state.rs:47-48,70-76`: cloned TextEditState shares an Arc; this alone does not require a deep copy. No documented legitimate double-show or command-reinjection contract was established.
+
+The supported-host undo check passed on c0 baseline in the prior plain-discard probe and passes in R09. It is retained coverage, not a red-before bug regression. Only held Next/direct page 3/release and valid/invalid unsubmitted-draft loss have proven baseline failure evidence. Artificial reinjection remains archived in 4bd, not supported production behavior.
+
+R09 commands, each from explicit `cd C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog`, with checkout-root `target/p10` build output:
+
+```text
+cargo fmt --manifest-path components/pdf-controls/Cargo.toml --check
+cargo check --locked --offline --all-targets --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10
+cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10 r09_default_layout_retries_preserve_real_undo_redo_history -- --nocapture
+cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10 r07_ -- --nocapture
+cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10
+git diff --check
+git diff 4bd4fa5a8cf7cf0e62cc5c0c51e40ff9570979db -- components/pdf-controls/src/lib.rs components/pdf-controls/src/tests.rs components/pdf-controls/HANDOFF.md
+git diff c0d6fbf423d9120f2c18d8adf8e45bb29516e117 -- components/pdf-controls/src/lib.rs components/pdf-controls/src/tests.rs components/pdf-controls/HANDOFF.md
+git diff --cached --check
+```
+
+Results: formatting and locked/offline all-target compile passed. Supported-host undo/redo focused check 1 passed; retained pointer/draft focused checks 3 passed; full suite 28 passed, 0 failed/ignored; 0 doc tests. No failed R09 fix attempts. Diff checks passed. Complete owned delta inspected against both 4bd and c0. No other path changed. Git reported only LF-to-CRLF working-copy warnings.
+
+F08.1/F08.2 remain component-only partial implementation; supplied fallback presentation does not complete F08.4. Native/manual UI, DPI, Narrator, performance, renderer, packaging and root integration remain unperformed. No filesystem/clipboard/native probe, actual GUI, rendering or enablement occurred. Terminal SHA is reported separately for fresh exact-head review only, not approval. Lane continuation requires its own supervisor review, serial integration and validation against updated main.
 
 ## Original P10 validation
 

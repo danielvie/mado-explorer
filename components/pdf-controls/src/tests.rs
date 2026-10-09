@@ -983,11 +983,7 @@ fn retry_edit(ctx: &Context, controls: &mut PdfControls, key: Key, expected: &st
     let mut passes = 0;
     let mut cursor = None;
     let output = ctx.run_ui(input(vec![edit_command(key)]), |ui| {
-        // Context::run_ui takes volatile events after pass zero. Exercise the
-        // controller's retry guard with a host-retained owned editing command.
-        if ctx.current_pass_index() > 0 {
-            ctx.input_mut(|input| input.events.push(edit_command(key)));
-        }
+        // Use run_ui's default event lifetime: no command reinjection on retries.
         assert!(controls.show(ui).request.is_none());
         passes += 1;
         assert_eq!(controls.editor(), expected);
@@ -1008,7 +1004,7 @@ fn retry_edit(ctx: &Context, controls: &mut PdfControls, key: Key, expected: &st
 }
 
 #[test]
-fn r07_layout_retries_preserve_real_undo_redo_history() {
+fn r09_default_layout_retries_preserve_real_undo_redo_history() {
     let (ctx, mut controls, _) = open(8);
     let editor_id = controls.control_ids()[3];
     let mut history = egui::text_edit::TextEditState::default().undoer();

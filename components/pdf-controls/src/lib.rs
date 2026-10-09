@@ -589,8 +589,8 @@ impl PdfControls {
                             "Next",
                         );
                         ui.label("Page");
-                        // Retry passes still register focus interest. TextEditState
-                        // clones share the undoer Arc, so snapshot its contents too.
+                        // Retry passes still register focus interest. An immutable
+                        // buffer and restored TextEditState keep text/cursor stable.
                         let saved_state = (!once)
                             .then(|| {
                                 egui::text_edit::TextEditState::load(
@@ -598,11 +598,7 @@ impl PdfControls {
                                     id.with("page-editor"),
                                 )
                             })
-                            .flatten()
-                            .map(|state| {
-                                let undoer = state.undoer();
-                                (state, undoer)
-                            });
+                            .flatten();
                         let displayed = self.editor.clone();
                         let mut readonly = displayed.as_str();
                         let buffer: &mut dyn egui::TextBuffer = if once {
@@ -623,8 +619,7 @@ impl PdfControls {
                                         && !stale_pointer,
                                 ),
                         );
-                        if let Some((mut state, undoer)) = saved_state {
-                            state.set_undoer(undoer);
+                        if let Some(state) = saved_state {
                             state.store(ui.ctx(), id.with("page-editor"));
                         }
                         if once && editor.changed() {
