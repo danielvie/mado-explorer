@@ -1,0 +1,25 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List component tasks
+    cmds:
+      - task --taskfile '{{.TASKFILE_DIR}}/Taskfile.yml' --list
+
+  run:
+    dir: '{{.TASKFILE_DIR}}/../..'
+    desc: Check generated owned HDROP memory with Windows Shell, no global clipboard access
+    cmds:
+      - cargo run --locked --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05 --example owned-hdrop
+
+  test:
+    dir: '{{.TASKFILE_DIR}}/../..'
+    desc: Run generated packet and owned-memory regression checks, no global clipboard access
+    cmds:
+      - cargo test --locked --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05
+
+  clean:
+    dir: '{{.TASKFILE_DIR}}/../..'
+    desc: Remove only generated target/p05 build output
+    cmds:
+      - cargo clean --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05
