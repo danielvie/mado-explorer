@@ -8,8 +8,9 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError};
 use std::thread::{self, JoinHandle};
 
 pub const CPU_BUFFER_LIMIT: usize = 256 * 1024 * 1024;
-/// Covers the backend's 32 MiB source, old/new growth allocations and 16 KiB chunk.
-pub const SOURCE_RESERVATION: usize = 64 * 1024 * 1024;
+/// Covers two capped source allocations during growth plus the 16 KiB read chunk.
+/// Short reads can leave the old allocation nearly as large as the input cap.
+pub const SOURCE_RESERVATION: usize = 2 * pdf::MAX_INPUT_BYTES + 16 * 1024;
 pub const MAX_TARGETS: usize = 16;
 pub const MAX_PATH_BYTES: usize = 128 * 1024;
 const MAX_ERROR_BYTES: usize = 2048;

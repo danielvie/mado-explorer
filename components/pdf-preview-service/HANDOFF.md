@@ -1,5 +1,32 @@
 # P11 PDF preview service handoff
 
+## S013-R08 source reservation correction
+
+Starting HEAD a545a26ab89cfa8e493f81e3d50437c50275c100 was clean on lane/raster-viewport in C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport. This correction changes only components/pdf-preview-service/src/lib.rs, src/tests.rs and HANDOFF.md. No accepted PDF dependency, manifest, root/shared file, output limit, lease lifetime, routing, shutdown or production gate changes. The fixed shared CPU ceiling remains 256 MiB. The source constant now reserves 2 * pdf::MAX_INPUT_BYTES + 16 * 1024 before the render call. Rust checks this constant arithmetic at compilation; the existing source-plus-output admission remains checked at runtime.
+
+Fresh review af0049cc-2d7a-40a, recorded in latest main PROGRESS.md under P11/S013-R08, found the P1 counterexample in accepted components/pdf-preview/src/lib.rs:348-374. A first read of 16,383 bytes followed by 16,384-byte chunks permits exact capacities 16,383, 32,767, 65,534 and further doublings to 33,553,408, then a clamp to 33,554,432. Assuming allocator growth overlaps old and new allocation layouts, the source peak is 33,553,408 + 33,554,432 + 16,384 = 67,124,224 bytes. That exceeds the old 67,108,864-byte reservation by 15,360. Held logical allocations of 256 MiB minus the old reservation minus a minimal 4-byte output leave room for the old admission, but source growth alone exceeds the ceiling by 15,356 bytes. Exact Vec capacity does not fix that arithmetic. No routing, lease, stop or API defect was reported.
+
+Two added regressions retain all eighteen original tests unchanged:
+
+- A numeric trace follows the accepted capped-read allowance, doubling/clamp capacity rule and excess-byte rejection using public MAX_INPUT_BYTES. It checks the complete read_bounded source body through a read-only include_str snapshot, ignoring whitespace only. A backend algorithm change fails the coupling check and requires re-auditing this trace and reservation. It allocates only the small capacity trace, not a 32 MiB source. This is allocation-layout accounting, not an actual allocator-overlap measurement.
+- Worker admission with logical held leases and a 1x1 request must refuse the counterexample before entering the controlled renderer. It also refuses one byte above the new conservative boundary, admits exactly at that boundary, releases the working reservation after an injected backend error, reuses the budget, and retains the actual 4-byte frame charge until frame drop. Releasing held leases restores the budget for another render. No huge held-data fixture or DLL rendering is needed.
+
+Exact commands, all from the checkout above:
+
+```sh
+cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11 s013_r08 -- --nocapture
+cargo fmt --manifest-path components/pdf-preview-service/Cargo.toml
+cargo fmt --manifest-path components/pdf-preview-service/Cargo.toml -- --check
+cargo check --locked --offline --all-targets --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11 s013_r08 -- --nocapture
+cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+git diff --check
+```
+
+RED before the constant fix: the first command exited 101, two tests failed, eighteen filtered out. The numeric assertion reported left 67108864 versus right 67125248. The admission assertion received Backend/MalformedDocument from the controlled renderer instead of BudgetExceeded, proving that the old admission entered it. GREEN after the constant fix: formatting and locked offline all-target check pass; both focused tests pass; full suite passes twenty tests, zero failures/ignored, plus zero doc tests. No unsuccessful fix attempts or weakened assertions. Git diff check passes, with only Git's existing LF-to-CRLF notices. The full suite retains its original generated-empty-directory missing-library fallback check; no DLL is loaded.
+
+F08.3/F08.5 remain partial. Actual native service rendering, GUI conversion/cache/GPU integration and all existing release/manual gates below remain pending. No GUI, personal data, clipboard, native/DLL probe, dependency update, budget waiver or production enablement was performed. The owned terminal SHA is reported separately for fresh exact-head safety review only, not self-approval or integration. Prior P11 implementation evidence below is historical; the corrected accounting proof is current.
+
 ## Candidate and scope
 
 - Checkout C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport, branch lane/raster-viewport.
@@ -30,8 +57,8 @@ The fixed shared ceiling is 256 MiB. Admission uses checked arithmetic and a bou
 
 Phases:
 
-1. Before calling the renderer, reserve 64 MiB SOURCE_RESERVATION plus checked requested width * height * 4. The output reservation is at most 32 MiB. All already-held Frame/CpuBuffer allocations remain charged in the same CpuBudget, including caller-held frames removed from mailboxes or from closed targets.
-2. Accepted read_bounded caps input at 32 MiB and uses a 16 KiB stack chunk. Its exact growth target is capped at 32 MiB. During growth, the prior and replacement Vec allocations may overlap. At the final doubling they are at most 16 + 32 MiB, plus the read chunk. The 64 MiB reservation covers that peak conservatively. Source bytes live through document/page cleanup. The backend writes directly into one exact-reserved BGRA output, swaps channels in place and makes no second pixel copy. The reservation also covers stable input/output overlap.
+1. Before calling the renderer, reserve SOURCE_RESERVATION of 64 MiB plus 16 KiB, derived as 2 * pdf::MAX_INPUT_BYTES + 16 * 1024, plus checked requested width * height * 4. The output reservation is at most 32 MiB. All already-held Frame/CpuBuffer allocations remain charged in the same CpuBudget, including caller-held frames removed from mailboxes or from closed targets.
+2. Accepted read_bounded caps input at 32 MiB and uses a 16 KiB stack chunk. Its exact growth target is capped at 32 MiB. During growth, the prior and replacement Vec allocations may overlap. Short reads allow the prior capacity to be nearly 32 MiB before the final clamp, not at most 16 MiB. Both allocation layouts are bounded individually by MAX_INPUT_BYTES, so 2 * MAX_INPUT_BYTES + 16 KiB covers the full growth peak regardless of the permitted short-read pattern. The new reservation is 67,125,248 bytes, not merely the example's 67,124,224-byte peak. Source bytes live through document/page cleanup. The backend writes directly into one exact-reserved BGRA output, swaps channels in place and makes no second pixel copy. The reservation also covers stable input/output overlap.
 3. On render_file return, native page/document/bitmap cleanup and source-buffer destruction have completed. Validate returned dimensions, checked length, native path, page/index/input metadata and Vec capacity against the pre-admitted output allowance. These checks detect a backend contract violation; they are not the primary allocation admission.
 4. Shrink the working charge to actual returned Vec capacity, not length. Move that lease and Vec into a private CpuBuffer inside Frame. Frame exposes a borrowed read-only pixel slice, never an owned Vec or an unleased clone.
 5. CpuBuffer::drop explicitly destroys its Vec before the lease field subtracts the remaining charge. Stale, cancelled, closed, replaced, error and stopped results follow the same ownership path. Leases are non-cloneable and release exactly once. Caller-held frames retain their charges after service join.

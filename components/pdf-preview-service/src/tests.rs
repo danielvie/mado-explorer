@@ -101,6 +101,187 @@ impl Controlled {
     }
 }
 
+// Numeric allocation-layout trace, not a second reader implementation. Keep the
+// complete pinned read_bounded body checked so backend changes require re-audit.
+fn short_read_source_peak() -> (Vec<usize>, usize) {
+    let source = include_str!("../../pdf-preview/src/lib.rs");
+    let pinned = r#"fn read_bounded(mut reader: impl Read, limit: usize) -> Result<Vec<u8>, ReadError> {
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 16 * 1024];
+    loop {
+        // Read one excess byte without appending it, even if the file grew after metadata.
+        let allowance = (limit - bytes.len()).saturating_add(1).min(chunk.len());
+        let count = match reader.read(&mut chunk[..allowance]) {
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            other => other.map_err(ReadError::Io)?,
+        };
+        if count == 0 {
+            return Ok(bytes);
+        }
+        if count > limit - bytes.len() {
+            return Err(ReadError::TooLarge);
+        }
+        if bytes.len() + count > bytes.capacity() {
+            let capacity = bytes
+                .capacity()
+                .saturating_mul(2)
+                .max(bytes.len() + count)
+                .min(limit);
+            bytes
+                .try_reserve_exact(capacity - bytes.len())
+                .map_err(|_| ReadError::Allocation)?;
+        }
+        bytes.extend_from_slice(&chunk[..count]);
+    }
+}"#;
+    let body = source
+        .split("fn read_bounded(")
+        .nth(1)
+        .unwrap()
+        .split("\nfn load_error(")
+        .next()
+        .unwrap();
+    let compact = |text: &str| text.split_whitespace().collect::<String>();
+    assert_eq!(
+        compact(&format!("fn read_bounded({body}")),
+        compact(pinned),
+        "accepted read_bounded changed; re-audit the numeric trace and reservation"
+    );
+
+    let limit = pdf::MAX_INPUT_BYTES;
+    let chunk = 16 * 1024;
+    let mut len = 0usize;
+    let mut capacity = 0usize;
+    let mut capacities = Vec::new();
+    let mut peak = chunk;
+    loop {
+        let allowance = (limit - len).saturating_add(1).min(chunk);
+        // A permitted first short read, then full chunks, including the excess
+        // byte read at the cap. No source allocation or native rendering occurs.
+        let count = if len == 0 {
+            chunk - 1
+        } else if len == limit {
+            1
+        } else {
+            allowance.min(limit - len)
+        };
+        if count > limit - len {
+            assert_eq!(count, 1);
+            assert_eq!(len, limit);
+            break;
+        }
+        if len + count > capacity {
+            let next = capacity.saturating_mul(2).max(len + count).min(limit);
+            peak = peak.max(capacity + next + chunk);
+            capacity = next;
+            capacities.push(capacity);
+        }
+        len += count;
+        peak = peak.max(capacity + chunk);
+    }
+    (capacities, peak)
+}
+
+#[test]
+fn s013_r08_short_read_growth_needs_full_source_headroom() {
+    let (capacities, peak) = short_read_source_peak();
+    let mut expected = vec![16_383, 32_767];
+    while *expected.last().unwrap() < pdf::MAX_INPUT_BYTES {
+        expected.push((expected.last().unwrap() * 2).min(pdf::MAX_INPUT_BYTES));
+    }
+    assert_eq!(capacities, expected);
+    assert_eq!(capacities[capacities.len() - 2], 33_553_408);
+    assert_eq!(peak, 67_124_224);
+    assert_eq!(peak - 2 * pdf::MAX_INPUT_BYTES, 15_360);
+    assert_eq!(SOURCE_RESERVATION, 2 * pdf::MAX_INPUT_BYTES + 16 * 1024);
+    assert!(peak <= SOURCE_RESERVATION);
+}
+
+#[test]
+fn s013_r08_short_read_admission_boundary_release_and_error_reuse() {
+    let (_, peak) = short_read_source_peak();
+    let budget = CpuBudget::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let worker_calls = calls.clone();
+    let worker_budget = budget.clone();
+    let mut service = Service::start_inner(budget.clone(), move || {
+        Box::new(move |path, request| {
+            let call = worker_calls.fetch_add(1, Ordering::AcqRel);
+            if call == 0 {
+                assert_eq!(worker_budget.used(), CPU_BUFFER_LIMIT);
+                return Err(Failure::Backend {
+                    state: BackendState::MalformedDocument,
+                    message: "injected read/render error".into(),
+                });
+            }
+            Ok(page(path, request))
+        })
+    })
+    .unwrap();
+    let target = retry(|| service.open_target());
+    let minimal = Request {
+        width: 1,
+        height: 1,
+        ..request()
+    };
+    assert_eq!(minimal.output_bytes().unwrap(), 4);
+    let submit = || retry(|| service.request(target, Path::new("logical-source"), minimal));
+
+    // The old 64 MiB admission fits exactly, but even source growth alone would
+    // exceed the shared ceiling. Logical leases avoid a huge held-data fixture.
+    let legacy_held = CPU_BUFFER_LIMIT - 2 * pdf::MAX_INPUT_BYTES - 4;
+    assert_eq!(legacy_held + peak - CPU_BUFFER_LIMIT, 15_356);
+    let held = budget.reserve(legacy_held).unwrap();
+    submit();
+    assert_eq!(
+        response(&service, target).result.unwrap_err(),
+        Failure::BudgetExceeded
+    );
+    assert_eq!(calls.load(Ordering::Acquire), 0);
+    assert_eq!(budget.used(), legacy_held);
+    drop(held);
+    assert_eq!(budget.used(), 0);
+
+    let conservative = 2 * pdf::MAX_INPUT_BYTES + 16 * 1024;
+    let mut held = budget
+        .reserve(CPU_BUFFER_LIMIT - conservative - 4 + 1)
+        .unwrap();
+    submit();
+    assert_eq!(
+        response(&service, target).result.unwrap_err(),
+        Failure::BudgetExceeded
+    );
+    assert_eq!(calls.load(Ordering::Acquire), 0);
+    held.shrink(held.bytes - 1);
+    let held_bytes = held.bytes;
+    submit();
+    assert!(matches!(
+        response(&service, target).result,
+        Err(Failure::Backend {
+            state: BackendState::MalformedDocument,
+            ..
+        })
+    ));
+    assert_eq!(calls.load(Ordering::Acquire), 1);
+    assert_eq!(budget.used(), held_bytes);
+    submit();
+    let frame = response(&service, target).result.unwrap();
+    assert_eq!(calls.load(Ordering::Acquire), 2);
+    assert_eq!(frame.charged_bytes(), 4);
+    assert_eq!(budget.used(), held_bytes + 4);
+    drop(frame);
+    assert_eq!(budget.used(), held_bytes);
+    drop(held);
+    assert_eq!(budget.used(), 0);
+    submit();
+    let frame = response(&service, target).result.unwrap();
+    assert_eq!(calls.load(Ordering::Acquire), 3);
+    assert_eq!(budget.used(), 4);
+    drop(frame);
+    assert_eq!(budget.used(), 0);
+    service.join().unwrap();
+}
+
 #[test]
 fn coalesced_fifo_is_fair_to_independent_targets() {
     let c = Controlled::new(CpuBudget::new());
