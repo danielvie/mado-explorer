@@ -18,6 +18,12 @@ tasks:
       - task workflow:test
       - task test:pdf
       - task test:summary
+      - task test:conflict
+
+  test:conflict:
+    desc: Test accepted conflict controls and bounded request-epoch presentation
+    cmds:
+      - cargo test --locked --manifest-path components/conflict-dialog/Cargo.toml --target-dir target/p08
 
   test:summary:
     desc: Test accepted selection-summary controls with generated metadata
