@@ -14,18 +14,18 @@ tasks:
     desc: Run generated native PDF probe; requires absolute PDFIUM_LIBRARY_PATH
     dir: '{{.ROOT_DIR}}/../..'
     cmds:
-      - cargo test --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}} --test backend native_fixture_probe -- --ignored --nocapture
+      - cargo test --locked --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}} --test backend native_fixture_probe -- --ignored --nocapture
   test:
     desc: Test PDF request/read limits and missing-library fallback; native probe remains opt-in
     dir: '{{.ROOT_DIR}}/../..'
     cmds:
-      - cargo test --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}}
+      - cargo test --locked --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}}
   check:
     desc: Check formatting and compile the PDF backend
     dir: '{{.ROOT_DIR}}/../..'
     cmds:
       - cargo fmt --manifest-path {{.MANIFEST}} -- --check
-      - cargo check --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}}
+      - cargo check --locked --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}}
   clean:
     desc: Remove only PDF component build output under target/p03
     dir: '{{.ROOT_DIR}}/../..'

@@ -37,12 +37,36 @@ fn missing_or_invalid_local_library_is_explicit() {
 }
 
 #[test]
+#[cfg(all(windows, target_arch = "x86_64"))]
 #[ignore = "requires trusted PDFium 7881 without V8/XFA; set absolute PDFIUM_LIBRARY_PATH and run task run"]
 fn native_fixture_probe() {
     let library = std::env::var_os("PDFIUM_LIBRARY_PATH").expect(
         "native probe pending: set PDFIUM_LIBRARY_PATH to an absolute trusted library file",
     );
     let renderer = Renderer::load(Path::new(&library)).unwrap();
+    // Reproduce the crate's flags-zero second load of the *same canonical held DLL*.
+    // Windows must return the same HMODULE, not remap it or resolve dependencies anew.
+    let canonical = Path::new(&library).canonicalize().unwrap();
+    unsafe {
+        use libloading::os::windows::{
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32, Library,
+        };
+        let secure = Library::load_with_flags(
+            &canonical,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
+        )
+        .unwrap();
+        let repeated = Library::new(&canonical).unwrap();
+        let secure_handle = secure.into_raw();
+        let repeated_handle = repeated.into_raw();
+        // Restore ownership before asserting, so failure also releases both test references.
+        let _secure = Library::from_raw(secure_handle);
+        let _repeated = Library::from_raw(repeated_handle);
+        assert_eq!(
+            secure_handle, repeated_handle,
+            "same held canonical DLL must be reused"
+        );
+    }
     // The same library can be requested again without reinitializing PDFium.
     let second_renderer = Renderer::load(Path::new(&library)).unwrap();
     let fixtures = FixtureDirectory::new();
@@ -136,7 +160,26 @@ fn native_fixture_probe() {
         renderer.render_file(&oversized, request()),
         Err(Error::InputTooLarge)
     ));
+    let other = fixtures.write("other-pdfium.dll", b"not a native library");
+    assert!(
+        matches!(Renderer::load(&other), Err(Error::RendererAlreadyLoaded { library: loaded }) if loaded == canonical)
+    );
+    let minimum = renderer
+        .render_file(
+            &source,
+            RenderRequest {
+                width: 1,
+                height: 1,
+                max_rgba_bytes: 4,
+                ..request()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        (minimum.width, minimum.height, minimum.rgba.len()),
+        (1, 1, 4)
+    );
     println!(
-        "Native PDFium probe passed: RGBA channel order, metadata, resize, page bounds, corrupt/password input, limits and unchanged sources."
+        "Native PDFium probe passed: held canonical HMODULE reuse, RGBA channel order, metadata, resize, page bounds, corrupt/password input, exact limits, library-switch refusal and unchanged sources."
     );
 }

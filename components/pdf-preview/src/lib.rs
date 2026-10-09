@@ -4,6 +4,9 @@
 use pdfium_render::prelude::{
     FPDF_BITMAP, FPDF_DOCUMENT, FPDF_PAGE, IFSDK_PAUSE, Pdfium, PdfiumLibraryBindings,
 };
+mod native;
+
+use native::{LoadMemDocument64, secure_load};
 use std::ffi::c_void;
 use std::fmt;
 use std::fs::File;
@@ -155,6 +158,9 @@ impl std::error::Error for Error {
 struct Engine {
     library: PathBuf,
     bindings: Box<dyn PdfiumLibraryBindings>,
+    load_mem_document64: LoadMemDocument64,
+    // Retain the secure first load as well as the bindings' second reference.
+    _module: libloading::Library,
 }
 
 // ponytail: one process-lifetime engine, serialized through one lock. This also protects
@@ -168,7 +174,8 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Load a trusted, absolute local PDFium library path, with no system/CWD fallback.
+    /// Load trusted Windows x64 PDFium from an absolute path. Dependency directory
+    /// search is restricted per load to that DLL's directory and System32.
     /// Supported deployment uses PDFium 7881 without V8/XFA. See README.md.
     /// This component must be the sole owner of PDFium initialization in the process.
     pub fn load(library: &Path) -> Result<Self, Error> {
@@ -194,6 +201,25 @@ impl Renderer {
             }
             return Ok(Self { engine });
         }
+        let module = secure_load(&library).map_err(|reason| Error::RendererUnavailable {
+            library: library.clone(),
+            reason,
+        })?;
+        // SAFETY: PDFium 7881 fpdfview.h declares (const void*, size_t, const char*).
+        // Windows x64 uses the same C/system ABI. The module lives with this pointer.
+        // Do NOT call pdfium-render 0.9.4's c_ulong-sized dynamic load method.
+        let load_mem_document64 = unsafe {
+            *module
+                .get::<LoadMemDocument64>(b"FPDF_LoadMemDocument64\0")
+                .map_err(|e| Error::RendererUnavailable {
+                    library: library.clone(),
+                    reason: e.to_string(),
+                })?
+        };
+        // The crate cannot accept an injected Library. Windows reuses this already-loaded
+        // exact canonical module, incrementing its reference count, not loading dependencies
+        // anew. Keep the first handle alive throughout and after binding. See README evidence.
+        // This flags-zero bind is NOT independently safe for a first load.
         let bindings =
             Pdfium::bind_to_library(&library).map_err(|e| Error::RendererUnavailable {
                 library: library.clone(),
@@ -204,7 +230,14 @@ impl Renderer {
         unsafe {
             bindings.FPDF_InitLibrary();
         }
-        let engine = ENGINE.get_or_init(|| Mutex::new(Engine { library, bindings }));
+        let engine = ENGINE.get_or_init(|| {
+            Mutex::new(Engine {
+                library,
+                bindings,
+                load_mem_document64,
+                _module: module,
+            })
+        });
         Ok(Self { engine })
     }
 
@@ -230,7 +263,7 @@ impl Renderer {
             ReadError::TooLarge => Error::InputTooLarge,
             ReadError::Allocation => Error::AllocationFailed,
         })?;
-        render(&*engine.bindings, path, &bytes, request)
+        render(&engine, path, &bytes, request)
     }
 }
 
@@ -395,14 +428,17 @@ unsafe extern "C" fn deadline_pause(pause: *mut IFSDK_PAUSE) -> i32 {
 }
 
 fn render(
-    bindings: &dyn PdfiumLibraryBindings,
+    engine: &Engine,
     path: &Path,
     bytes: &[u8],
     request: RenderRequest,
 ) -> Result<RenderedPage, Error> {
     // SAFETY: all native calls run under the engine lock. Source bytes outlive the
     // document; valid handles and bounded external bitmap storage are guarded below.
-    let document = unsafe { bindings.FPDF_LoadMemDocument64(bytes, None) };
+    let bindings = &*engine.bindings;
+    let document = unsafe {
+        (engine.load_mem_document64)(bytes.as_ptr().cast(), bytes.len(), std::ptr::null())
+    };
     if document.is_null() {
         return Err(load_error(unsafe { bindings.FPDF_GetLastError() } as u64));
     }
@@ -551,6 +587,22 @@ mod tests {
             }),
             Err(Error::InvalidRequest(_))
         ));
+        assert!(matches!(
+            validate_request(RenderRequest {
+                page_index: i32::MAX as u32 + 1,
+                ..request()
+            }),
+            Err(Error::InvalidRequest(_))
+        ));
+        assert!(
+            validate_request(RenderRequest {
+                width: 1,
+                height: 1,
+                max_rgba_bytes: 4,
+                page_index: i32::MAX as u32,
+            })
+            .is_ok()
+        );
         assert!(
             validate_request(RenderRequest {
                 width: MAX_DIMENSION,

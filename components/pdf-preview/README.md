@@ -1,10 +1,10 @@
 # PDF preview backend
 
-P03 is a standalone read-only Rust library, not an enabled explorer feature. It prepares backend portions of F08.1-F08.6. No UI acceptance, stale-result routing, window cache budget, GPU behavior, or packaging check is claimed.
+P03b is a standalone read-only Rust library, not an enabled explorer feature. Promotion remains gated on fresh safety review. It prepares backend portions of F08.1-F08.6. No UI acceptance, stale-result routing, window cache budget, GPU behavior, or packaging check is claimed.
 
 ## API
 
-`Renderer::load(&absolute_library_path)` loads one trusted local PDFium library. There is no current-directory or system search fallback and no download. Missing files, bad binaries, wrong architecture, and missing exports return `Error::RendererUnavailable` with the loader reason. The same canonical library path reuses the engine; another library needs a process restart.
+`Renderer::load(&absolute_library_path)` loads one trusted installed Windows x64 PDFium library. Its first load uses `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`. Dependency directory search permits only the chosen DLL directory and Windows System32, never CWD/PATH. Failure has no fallback. No download or process-wide loader policy change occurs. Other platforms/architectures return renderer unavailable. Missing files, bad binaries, wrong architecture, and missing exports return `Error::RendererUnavailable` with the loader reason. The same canonical library path reuses the engine; another library needs a process restart.
 
 `renderer.render_file(&path, RenderRequest { page_index, width, height, max_rgba_bytes })` reads a regular file and returns `RenderedPage`:
 
@@ -30,32 +30,55 @@ Call only from the application's background worker. There are no threads or queu
 
 ## Active content
 
-The component uses `pdfium-render`'s established low-level bindings, not a PDF interpreter. The high-level `PdfDocument` path initializes a form-fill environment, so this component intentionally does not use it. It calls memory loading, page count/version/dimensions, page loading, external bitmap creation, and progressive rendering with flags zero. It never initializes forms/XFA, invokes document/page actions, registers JavaScript callbacks, follows links, saves documents, or supplies the source path to PDFium.
+The component uses a directly resolved memory-load symbol and `pdfium-render`'s low-level bindings for the remaining calls, not a PDF interpreter. The high-level `PdfDocument` path initializes a form-fill environment, so this component intentionally does not use it. It calls memory loading, page count/version/dimensions, page loading, external bitmap creation, and progressive rendering with flags zero. It never initializes forms/XFA, invokes document/page actions, registers JavaScript callbacks, follows links, saves documents, or supplies the source path to PDFium.
 
 Only the non-V8/non-XFA native build is supported. Rust features omit V8/XFA APIs, but that alone does not prove how a supplied DLL was built. Deployment must verify the provider/build configuration. Forms/widgets and interactive annotations are not rendered through a form environment. Native engine vulnerabilities are not made safe by skipping action APIs.
 
 ## Local installation support
 
-Dependency: `pdfium-render = 0.9.4`, exactly pinned, default features disabled, `pdfium_7881` and `thread_safe` enabled. No `image`, static-link, Win32 rendering, V8, or XFA features. The component-local lockfile records transitive versions. The binding loads all exports for its selected API, so a missing symbol is a renderer-unavailable error even if this component would not use that symbol.
+Dependencies: `pdfium-render = 0.9.4`, exactly pinned, default features disabled, `pdfium_7881` and `thread_safe` enabled; `libloading = 0.9.0`, exactly pinned, already present transitively. Its ISC license and Rust dependency notices remain packaging obligations. The only lockfile change adds the existing libloading package to this component's direct dependency list. No `image`, static-link, Win32 rendering, V8, or XFA features. The component-local lockfile records transitive versions. The binding loads all exports for its selected API, so a missing symbol is a renderer-unavailable error even if this component would not use that symbol.
 
 Proposed Windows x64 provider is bblanchon's non-V8 PDFium 151.0.7881.0 release. This is a third-party build provider, not Google/Foxit. Installation is explicit:
 
-1. Obtain `pdfium-win-x64.tgz` from https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/7881, not a `pdfium-v8-*` archive. Match the process architecture for other targets.
-2. Verify the archive against its release digest and review provider provenance. The release API reports SHA-256 `73cc0de638ac2095e7445bf56a38200a5b7c7ca0e9f4ba144598f2457377ac08` for that x64 archive. No archive was downloaded or independently hashed in this lane.
-3. Extract it to an operator-owned installation directory. Preserve its `licenses` directory. Pass the absolute path to its `bin/pdfium.dll` to `Renderer::load`. Do not load a renderer found in a browsed folder.
+1. Obtain `pdfium-win-x64.tgz` from https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/7881, not a `pdfium-v8-*` archive. This adapter supports Windows x64 only.
+2. Verify the archive against its release digest and review provider provenance. The release API reports SHA-256 `73cc0de638ac2095e7445bf56a38200a5b7c7ca0e9f4ba144598f2457377ac08` for that x64 archive. P03b independently hashed the supervisor-provided archive and matched that value.
+3. Extract it to a trusted operator-controlled installation directory, including its DLL dependencies. Protect the directory against untrusted replacement. Preserve its `licenses` directory. Pass the absolute path to its `bin/pdfium.dll` to `Renderer::load`. Do not load a renderer found in a browsed folder.
 4. For the component probe only, set `PDFIUM_LIBRARY_PATH` to that absolute DLL file path and run the component `run` task. The library API itself does not read environment variables.
 
 An equivalent trusted local build must use matching PDFium API 7881 and `pdf_enable_v8=false`, `pdf_enable_xfa=false`. Export binding is not a binary authenticity or feature attestation check. Upgrade and native security-update policy remain a release decision.
 
 No native library is included or redistributed. This documents an installation route for F08.6, not completed clean-machine installation or distribution approval.
 
+## Corrected ABI and loader
+
+`pdfium-render` 0.9.4 has a demonstrated Windows x64 ABI defect. Its generated 7881 declaration uses `usize` for `FPDF_LoadMemDocument64`, but `dynamic_bindings.rs:67-71,4027-4034` uses `c_ulong` and casts the length. Windows x64 has 64-bit `size_t` and 32-bit `unsigned long`. The 32 MiB input cap is not an ABI repair, and the legacy trait wrapper forwards to that same wrong method.
+
+The adapter resolves `FPDF_LoadMemDocument64` from the secure held module as `unsafe extern "system" fn(*const c_void, usize, *const c_char) -> FPDF_DOCUMENT`. The installed 7881 header declares `const void*`, `size_t`, and `FPDF_BYTESTRING`, a `const char*`. Its `FPDF_CALLCONV` is `__stdcall` with WIN32/FPDFSDK_EXPORTS, otherwise C. Microsoft documents that x64 ignores `__stdcall` and uses the common x64 ABI. The adapter deliberately supports only Windows x64. The native probe is behavioral evidence, not the proof of argument width.
+
+The remaining invoked dynamic declarations and forwarding bodies were compared with the installed `fpdfview.h`/`fpdf_progressive.h`: InitLibrary, GetLastError, GetPageCount, GetFileVersion, LoadPage, GetPageWidthF/HeightF, Bitmap_CreateEx/Destroy, RenderPageBitmap_Start/RenderPage_Close, ClosePage/CloseDocument. These use handles/pointers, C int/float, or actual unsigned long for GetLastError. No other upstream load wrapper is invoked. IFSDK_PAUSE uses the header's C callback and version 1.
+
+The upstream binding constructor privately owns its libloading handle and exposes no injection API. It still makes a flags-zero second load of the **same canonical absolute path while the secure first handle remains held**. Windows reuses an already-loaded executable module and increments its process reference count; it does not remap that module or resolve its imports again. The real probe compares HMODULE values from secure and flags-zero loads of the same held path and passes. This does not make a flags-zero first load safe. Engine retains both references for process lifetime. Source bytes remain alive and unmoved until DocumentPage closes the document, including error exits; pixels remain borrowed until native bitmap/render cleanup.
+
+Per-load flags do not attest DLL provenance or establish a sandbox. Deployment must use the verified non-V8/non-XFA build in a trusted directory and make this component the sole PDFium loader/initializer. Windows API-set/KnownDLL/loaded-module/SxS rules still apply. Do not preload untrusted same-name dependencies or configure untrusted DLL redirection. The flags constrain this LoadLibraryExW call's directory search, not every later library load inside native code. No process-wide loader-policy claim is made.
+
+## Inspected native artifact
+
+The retained ignored artifact is `C:/SANDBOX/WORKTREES/mado-explorer/pdf-preview/target/native-probe-pdfium-7881`. VERSION is 151.0.7881.0; args.gn has `target_os="win"`, `target_cpu="x64"`, `pdf_enable_v8=false`, `pdf_enable_xfa=false`. Archive SHA-256 matched the release digest above; extracted DLL SHA-256 is `79d4676b656cfb1abcea88f9ade3b4b0826c5200382db5f4ec72a636c598c118`.
+
+MSVC dumpbin 14.44.35225.0 `/dependents` and `/imports` show static DLL imports KERNEL32.dll, ADVAPI32.dll, GDI32.dll and USER32.dll, no separate V8/XFA/runtime DLL. The import listing includes LoadLibraryA/LoadLibraryExW, so this inventory does not prove absence or safety of runtime native loads. The generated loader regression separately demonstrates that a missing dependency present only in CWD/PATH is rejected, then succeeds when that same harmless generated dependency is installed beside its top DLL. Only isolated child processes change CWD/PATH.
+
+The archive retains LICENSE and notices for PDFium, abseil, agg23, fast_float, freetype, icu, lcms, libjpeg_turbo, libopenjpeg, libpng, libtiff, llvm-libc, simdutf and zlib. Presence/inventory is not final redistribution approval. No artifact or binary is committed or redistributed.
+
 ## Primary-source evidence
 
 - Crate release/API/features: https://docs.rs/crate/pdfium-render/0.9.4/source/Cargo.toml and https://docs.rs/pdfium-render/0.9.4/pdfium_render/prelude/trait.PdfiumLibraryBindings.html. The downloaded crates.io 0.9.4 source was also inspected locally.
+- Direct loader release/license: https://docs.rs/crate/libloading/0.9.0/source/Cargo.toml, ISC. The installed manifest was inspected.
 - Rust binding license declaration, MIT OR Apache-2.0: https://github.com/ajrcarey/pdfium-render/blob/master/LICENSE.md. That short file references the standard license texts; packaging still needs Rust dependency notices.
 - High-level form initialization avoided here: https://docs.rs/crate/pdfium-render/0.9.4/source/src/pdf/document/form.rs and https://docs.rs/crate/pdfium-render/0.9.4/source/src/pdf/document.rs.
 - PDFium loading errors, memory buffer lifetime, external bitmap/stride and thread serialization contract: https://pdfium.googlesource.com/pdfium/+/refs/heads/chromium/7881/public/fpdfview.h. `FPDF_ERR_FORMAT=3`, `FPDF_ERR_PASSWORD=4`, `FPDF_ERR_SECURITY=5`; bitmap format BGRA is 4.
-- Progressive status/deadline callback/cleanup: https://pdfium.googlesource.com/pdfium/+/refs/heads/main/public/fpdf_progressive.h. DONE is 2; FAILED is 3. This status-bearing path avoids pretending that the void-returning normal render API proves successful rendering.
+- Windows per-load flags and module reuse: https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryexw and https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryw. Standard search/loaded-module rules: https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-search-order. The installed libloading 0.9.0 Windows implementation was inspected; `new` forwards flags zero and `load_with_flags` passes its flags to LoadLibraryExW.
+- Windows x64 ABI: https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention?view=msvc-170 and https://learn.microsoft.com/en-us/cpp/cpp/stdcall?view=msvc-170.
+- Progressive status/deadline callback/cleanup: https://pdfium.googlesource.com/pdfium/+/refs/heads/chromium/7881/public/fpdf_progressive.h. DONE is 2; FAILED is 3. This status-bearing path avoids pretending that the void-returning normal render API proves successful rendering.
 - Native release assets/digests: https://api.github.com/repos/bblanchon/pdfium-binaries/releases/tags/chromium%2F7881.
 - Provider build flags at the chosen release: https://github.com/bblanchon/pdfium-binaries/blob/chromium/7881/steps/05-configure.sh. V8 defaults false; XFA uses the same flag.
 - PDFium license at the chosen API branch: https://pdfium.googlesource.com/pdfium/+/refs/heads/chromium/7881/LICENSE. The opening BSD-style conditions permit binary redistribution with notices/disclaimer and prohibit unapproved endorsement. Do not reduce the entire native dependency tree to that opening license.
@@ -72,6 +95,8 @@ task --taskfile components/pdf-preview/Taskfile.yml check
 task --taskfile components/pdf-preview/Taskfile.yml test
 ```
 
-`run` executes the opt-in native fixture probe, not a GUI. It fails if `PDFIUM_LIBRARY_PATH` is absent or loading/rendering fails. Default tests explicitly ignore that probe; an ignored probe is pending, not passed. `clean` removes only build output under root `target/p03`.
+`check`, `test`, and `run` use locked Cargo resolution. Default checks require rustc/linker availability for the two small generated DLL fixtures. The default run passes nine checks, with the native probe opt-in and an auxiliary isolated-child test ignored in the parent. The loader test invokes that child itself twice, checking missing-dependency failure then installed-dependency success. The signature check exercises a harmless full-width value greater than u32::MAX without reading a buffer or calling PDFium, and guards against either upstream memory-load wrapper reappearing in production source.
 
-The native probe creates and removes only a uniquely claimed disposable directory. It generates a simple red-square PDF, malformed input, and a deterministic password-protected blank PDF. It checks metadata, RGBA channel order/pixels, physical-size rerendering, page/output/input bounds, source preservation, I/O failure, malformed/password distinction, and engine reuse. Encryption constants were generated with pypdf 6.20.0 using user password `secret`, owner password `owner`, and RC4-40 solely as a test fixture. No Python runtime or encryption implementation is part of this library.
+`run` executes the opt-in native fixture probe, not a GUI. It fails if `PDFIUM_LIBRARY_PATH` is absent or loading/rendering fails. Default tests explicitly ignore that probe. P03b separately executed it against the retained trusted DLL successfully; this does not verify a different installed binary or clean-machine deployment. `clean` removes only build output under root `target/p03`.
+
+The native probe creates and removes only a uniquely claimed disposable directory. It generates a simple red-square PDF, malformed input, and a deterministic password-protected blank PDF. It checks metadata, RGBA channel order/pixels, physical-size rerendering, page/output/input bounds including exact four-byte output, source preservation, I/O failure, malformed/password distinction, engine reuse, native HMODULE reuse, and library-switch refusal. Encryption constants were generated with pypdf 6.20.0 using user password `secret`, owner password `owner`, and RC4-40 solely as a test fixture. No Python runtime or encryption implementation is part of this library.
