@@ -1,0 +1,25 @@
+version: '3'
+
+vars:
+  ROOT: '{{.TASKFILE_DIR}}/../..'
+
+tasks:
+  default:
+    desc: List component tasks
+    cmds:
+      - task --list
+
+  run:
+    desc: Run the CPU decoder probe with an optional native image path
+    cmds:
+      - cd "{{.ROOT}}" && cargo run --locked --manifest-path components/image-preview/Cargo.toml --target-dir target/p01 --example decode -- {{.CLI_ARGS}}
+
+  test:
+    desc: Run disposable decoder, orientation and limit regressions
+    cmds:
+      - cd "{{.ROOT}}" && cargo test --locked --manifest-path components/image-preview/Cargo.toml --target-dir target/p01
+
+  clean:
+    desc: Remove only this component's target/p01 build artifacts
+    cmds:
+      - cd "{{.ROOT}}" && cargo clean --manifest-path components/image-preview/Cargo.toml --target-dir target/p01
