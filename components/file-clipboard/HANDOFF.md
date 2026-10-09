@@ -76,6 +76,31 @@ One initial `task run` failed because a top-level Taskfile `dir` did not change 
 
 The `clean` task uses `cargo clean --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05` only. It was inspected, not run, to retain build evidence.
 
+## S012-R02 UNC pipe-share correction
+
+Fresh fix starts at `8998cec501420d1602165d00945746f7da2fb30e` on `lane/file-clipboard`. Exclusive writes are `components/file-clipboard/src/lib.rs`, `components/file-clipboard/src/tests.rs` and this handoff. The supervisor's root `PROGRESS.md` commission note was already dirty at launch and remains unedited and unstaged. No delegation, root/sibling changes, transport/publication refactor or acceptance-status updates.
+
+The supervisor relayed a concrete reviewer finding against that starting candidate. In `C:/SANDBOX/WORKTREES/mado-explorer/file-clipboard/components/file-clipboard/src/lib.rs:389-395`, ordinary and verbatim UNC paths enter `unc_remainder`; lines 407-427 originally validated server/share components without rejecting the reserved `pipe` share. Both `\\localhost\pipe\example` and `\\?\UNC\localhost\pipe\example` could enter snapshots and decoded packets. This contradicted the pipe-rejection contract above. No filesystem I/O or data loss was established by the finding.
+
+The correction at `lib.rs:423-426` rejects the exact case-insensitive share `pipe` using existing lossless `ascii_eq`. Snapshot, raw UTF-16 decoding and native-ACP decoding already share this validator. Ordinary trailing-dot/space aliases remain refused by existing `validate_component`; no additional normalization was needed. Verbatim trailing-dot/space components retain literal semantics. Filesystem shares containing `pipe` in their names and entries called `pipe` inside valid shares remain accepted, with native UTF-16 identity unchanged. No filesystem validation was added.
+
+Four new regression tests in `C:/SANDBOX/WORKTREES/mado-explorer/file-clipboard/components/file-clipboard/src/tests.rs:288-375` cover ordinary/verbatim UNC, mixed case, share roots, ordinary mixed separators and ordinary trailing-dot/space aliases. Separate tests exercise snapshot, generated raw-wide buffers and generated ASCII native-ACP buffers. Positive coverage checks accepted shares, pipe-named entries, verbatim literal components, drive paths and exact native-unit identity through snapshot/raw decoding/encoded roundtrip. Only generated buffers and the existing owned-allocation checks ran; no global clipboard or pipe/network filesystem calls.
+
+Exact commands ran from the lane root, each with `cd C:/SANDBOX/WORKTREES/mado-explorer/file-clipboard`:
+
+```text
+cargo test --locked --offline --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05 unc_pipe_share
+cargo fmt --check --manifest-path components/file-clipboard/Cargo.toml
+cargo check --locked --offline --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05 --all-targets
+cargo test --locked --offline --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05 unc_pipe_share
+cargo test --locked --offline --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05
+git diff --check
+```
+
+The first focused run, before changing the validator, exited 101: three rejection tests failed at `tests.rs:305`, `317` and `330` because `\\localhost\pipe\example` was admitted. The positive identity test passed; eleven existing tests were filtered out. This is retained red-test evidence, not a passing check or a failed fix attempt. After the single four-line correction, formatting and locked/offline all-target compile passed; all four focused tests passed; all fifteen component tests passed, zero ignored, with zero doctests. Diff whitespace checks passed. Git emitted only the existing LF-to-CRLF working-copy warnings.
+
+F13.6/F10.1/F02.4 remain backend-only partial coverage. Fresh independent review of the correction's exact committed head is still required before promotion. Actual Explorer interoperability, GUI/operation routing, source revalidation, checkpoint probes and production enablement remain pending as listed below. No new manual/platform claim.
+
 ## Pending gates
 
 - Fresh independent review of exact candidate before promotion/enablement.

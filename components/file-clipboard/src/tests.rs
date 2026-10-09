@@ -285,6 +285,95 @@ fn only_absolute_filesystem_namespaces_not_device_aliases_or_shell_strings() {
     }
 }
 
+const UNC_PIPE_PATHS: &[&str] = &[
+    "\\\\localhost\\pipe\\example",
+    "\\\\localhost\\pipe",
+    "\\\\server\\PiPe\\example",
+    "\\\\?\\UNC\\localhost\\pipe\\example",
+    "\\\\?\\UNC\\localhost\\pipe",
+    "\\\\?\\uNc\\server\\pIpE\\example",
+    "\\\\localhost/pipe/example",
+    "\\\\server/PiPe\\example",
+    "\\\\server\\pipe/example",
+    "\\\\server\\pipe.\\example",
+    "\\\\server\\pipe \\example",
+];
+
+#[test]
+fn unc_pipe_share_snapshot_rejected() {
+    for value in UNC_PIPE_PATHS {
+        assert!(
+            FilePacket::snapshot(&[path(value)], Intent::Copy).is_err(),
+            "accepted {value}"
+        );
+    }
+}
+
+#[test]
+fn unc_pipe_share_raw_wide_rejected() {
+    for value in UNC_PIPE_PATHS {
+        let mut units: Vec<u16> = value.encode_utf16().collect();
+        units.extend([0, 0]);
+        assert!(
+            decode_packet(&raw_wide(&units), None).is_err(),
+            "decoded {value}"
+        );
+    }
+}
+
+#[test]
+fn unc_pipe_share_native_acp_rejected() {
+    for value in UNC_PIPE_PATHS {
+        // These ASCII bytes are identical under every native ACP.
+        let mut bytes = value.as_bytes().to_vec();
+        bytes.extend([0, 0]);
+        assert!(
+            decode_packet(&raw_ansi(&bytes), None).is_err(),
+            "decoded {value}"
+        );
+    }
+}
+
+#[test]
+fn unc_pipe_share_guard_preserves_filesystem_paths_and_native_identity() {
+    for value in [
+        "\\\\server\\share",
+        "\\\\server\\share\\pipe",
+        "\\\\server\\share\\pipe\\file",
+        "\\\\server/share/PiPe/file",
+        "\\\\server\\pipeline\\file",
+        "\\\\server\\my-pipe\\file",
+        "\\\\?\\UNC\\server\\share\\pipe",
+        "\\\\?\\UNC\\server\\share\\PiPe\\file",
+        "\\\\?\\UNC\\server\\pipeline\\file",
+        "\\\\?\\UNC\\server\\pipe.\\file",
+        "\\\\?\\UNC\\server\\pipe \\file",
+        "C:\\pipe\\file",
+        "\\\\?\\C:\\pipe",
+    ] {
+        let packet = FilePacket::snapshot(&[path(value)], Intent::Copy).unwrap();
+        let mut units: Vec<u16> = value.encode_utf16().collect();
+        units.extend([0, 0]);
+        let mut bytes = value.as_bytes().to_vec();
+        bytes.extend([0, 0]);
+        for admitted in [
+            packet.clone(),
+            decode_packet(&raw_wide(&units), None).unwrap(),
+            decode_packet(&raw_ansi(&bytes), None).unwrap(),
+            decode_packet(&packet.encode_hdrop().unwrap(), None).unwrap(),
+        ] {
+            assert_eq!(
+                admitted.paths()[0]
+                    .as_os_str()
+                    .encode_wide()
+                    .collect::<Vec<_>>(),
+                value.encode_utf16().collect::<Vec<_>>(),
+                "changed {value}"
+            );
+        }
+    }
+}
+
 #[test]
 fn ansi_uses_native_acp_and_requires_complete_list() {
     let decoded = decode_packet(

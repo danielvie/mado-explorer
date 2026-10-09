@@ -420,6 +420,10 @@ fn unc_remainder(units: &[u16], verbatim: bool) -> Result<&[u16], CodecError> {
     }
     validate_component(server, verbatim)?;
     validate_component(share, verbatim)?;
+    // The UNC pipe share is a device namespace, not a filesystem share.
+    if ascii_eq(share, "pipe") {
+        return Err(CodecError::InvalidNamespace);
+    }
     Ok(if share_end == rest.len() {
         &[]
     } else {
