@@ -163,6 +163,8 @@ pub struct DialogOutput {
 
 /// One controller per operation, owned by the window rather than a tab or pane.
 /// Retains at most one request and one exact-type policy; no response queue.
+/// Only one conflict presenter may be drawn in a window's egui Context at a time.
+/// Sequential requests and operation controllers reuse that window's modal area.
 pub struct ConflictDialog {
     operation: OperationId,
     latest: Option<ConflictId>,
@@ -280,112 +282,123 @@ impl ConflictDialog {
         self.input_frame = Some(frame);
         let request = &pending.request;
         let fresh = *pending.first_frame.get_or_insert(frame) == frame;
-        let id = Id::new(("mado-conflict", self.operation, request.conflict));
+        // egui retains Area state and layer order after hiding. One area per window,
+        // including across controller recreation; child IDs still isolate requests.
+        let id = Id::new("mado-conflict-presenter");
         let modal = egui::Modal::new(id).show(ctx, |ui| {
-            let top = ui.memory(|memory| memory.top_modal_layer() == Some(ui.layer_id()));
-            let (escape, enter, space, key_activation) = if top {
-                ui.input_mut(|input| {
-                    let pressed = |wanted| {
-                        input.events.iter().any(|event| matches!(event,
+            ui.push_id((self.operation, request.conflict), |ui| {
+                let top = ui.memory(|memory| memory.top_modal_layer() == Some(ui.layer_id()));
+                let (escape, enter, space, key_activation) = if top {
+                    ui.input_mut(|input| {
+                        let pressed = |wanted| {
+                            input.events.iter().any(|event| matches!(event,
                         egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. }
                         if *key == wanted && *modifiers == Modifiers::NONE
                     ))
-                    };
-                    let keys = (
-                        pressed(Key::Escape),
-                        pressed(Key::Enter),
-                        pressed(Key::Space),
-                        input.key_pressed(Key::Enter) || input.key_pressed(Key::Space),
-                    );
-                    // Consume repeats and modified variants too, preventing native button
-                    // activation from a held key belonging to a previous request.
-                    input.events.retain(|event| {
-                        !matches!(
-                            event,
-                            egui::Event::Key {
-                                key: Key::Escape | Key::Enter | Key::Space,
-                                ..
-                            }
-                        )
-                    });
-                    keys
-                })
-            } else {
-                (false, false, false, false)
-            };
-            ui.set_width((ctx.content_rect().width() - 48.0).clamp(160.0, 520.0));
-            ui.heading("Destination conflict");
-            ui.label(format!(
-                "Operation {} / conflict {}",
-                request.operation.0, request.conflict.0
-            ));
-            ui.label(request.kind.description());
-            ui.label("Source");
-            let source = path_label(ui, &request.source);
-            ui.label("Destination");
-            let destination = path_label(ui, &request.destination);
-            if !request.kind.allows_replace() {
-                ui.label("Replace is unavailable. Folders are never merged or replaced.");
-            }
-            let previous_apply = pending.apply;
-            let checkbox = ui.checkbox(
-                &mut pending.apply,
-                "Apply to remaining conflicts of this type in this operation",
-            );
-            if key_activation {
-                // egui may already have cached a keyboard click before consumption.
-                pending.apply = previous_apply;
-            }
-            ui.label("Enter: Skip. Escape: Cancel operation. Tab then Space: choose an action.");
-            let buttons = ui
-                .horizontal_wrapped(|ui| {
-                    [
-                        ui.button("Skip"),
-                        ui.button("Keep both"),
-                        ui.add_enabled(request.kind.allows_replace(), egui::Button::new("Replace")),
-                        ui.button("Cancel"),
-                    ]
-                })
-                .inner;
-            if top && !pending.focus_set {
-                // egui's modal layer becomes current after its initial sizing pass.
-                buttons[0].request_focus();
-                pending.focus_set = true;
-            }
-            if fresh {
-                // A new request cannot inherit a prior checkbox activation.
-                pending.apply = false;
-            } else if space && checkbox.has_focus() {
-                pending.apply = !pending.apply;
-            }
-            let choices = [
-                Choice::Skip,
-                Choice::KeepBoth,
-                Choice::Replace,
-                Choice::Cancel,
-            ];
-            let choice = if escape {
-                Some(Choice::Cancel)
-            } else if fresh || !top {
-                None
-            } else if enter {
-                Some(Choice::Skip)
-            } else {
-                buttons.iter().zip(choices).find_map(|(button, choice)| {
-                    (button.enabled()
-                        && ((!key_activation && button.clicked()) || (space && button.has_focus())))
-                    .then_some(choice)
-                })
-            };
-            #[cfg(test)]
-            {
-                self.controls = Some((buttons, checkbox, [source, destination]));
-            }
-            #[cfg(not(test))]
-            {
-                let _ = (buttons, checkbox, source, destination);
-            }
-            choice
+                        };
+                        let keys = (
+                            pressed(Key::Escape),
+                            pressed(Key::Enter),
+                            pressed(Key::Space),
+                            input.key_pressed(Key::Enter) || input.key_pressed(Key::Space),
+                        );
+                        // Consume repeats and modified variants too, preventing native button
+                        // activation from a held key belonging to a previous request.
+                        input.events.retain(|event| {
+                            !matches!(
+                                event,
+                                egui::Event::Key {
+                                    key: Key::Escape | Key::Enter | Key::Space,
+                                    ..
+                                }
+                            )
+                        });
+                        keys
+                    })
+                } else {
+                    (false, false, false, false)
+                };
+                ui.set_width((ctx.content_rect().width() - 48.0).clamp(160.0, 520.0));
+                ui.heading("Destination conflict");
+                ui.label(format!(
+                    "Operation {} / conflict {}",
+                    request.operation.0, request.conflict.0
+                ));
+                ui.label(request.kind.description());
+                ui.label("Source");
+                let source = path_label(ui, &request.source);
+                ui.label("Destination");
+                let destination = path_label(ui, &request.destination);
+                if !request.kind.allows_replace() {
+                    ui.label("Replace is unavailable. Folders are never merged or replaced.");
+                }
+                let previous_apply = pending.apply;
+                let checkbox = ui.checkbox(
+                    &mut pending.apply,
+                    "Apply to remaining conflicts of this type in this operation",
+                );
+                if key_activation {
+                    // egui may already have cached a keyboard click before consumption.
+                    pending.apply = previous_apply;
+                }
+                ui.label(
+                    "Enter: Skip. Escape: Cancel operation. Tab then Space: choose an action.",
+                );
+                let buttons = ui
+                    .horizontal_wrapped(|ui| {
+                        [
+                            ui.button("Skip"),
+                            ui.button("Keep both"),
+                            ui.add_enabled(
+                                request.kind.allows_replace(),
+                                egui::Button::new("Replace"),
+                            ),
+                            ui.button("Cancel"),
+                        ]
+                    })
+                    .inner;
+                if top && !pending.focus_set {
+                    // egui's modal layer becomes current after its initial sizing pass.
+                    buttons[0].request_focus();
+                    pending.focus_set = true;
+                }
+                if fresh {
+                    // A new request cannot inherit a prior checkbox activation.
+                    pending.apply = false;
+                } else if space && checkbox.has_focus() {
+                    pending.apply = !pending.apply;
+                }
+                let choices = [
+                    Choice::Skip,
+                    Choice::KeepBoth,
+                    Choice::Replace,
+                    Choice::Cancel,
+                ];
+                let choice = if fresh || !top {
+                    None
+                } else if escape {
+                    Some(Choice::Cancel)
+                } else if enter {
+                    Some(Choice::Skip)
+                } else {
+                    buttons.iter().zip(choices).find_map(|(button, choice)| {
+                        (button.enabled()
+                            && ((!key_activation && button.clicked())
+                                || (space && button.has_focus())))
+                        .then_some(choice)
+                    })
+                };
+                #[cfg(test)]
+                {
+                    self.controls = Some((buttons, checkbox, [source, destination]));
+                }
+                #[cfg(not(test))]
+                {
+                    let _ = (buttons, checkbox, source, destination);
+                }
+                choice
+            })
+            .inner
         });
         let operation = request.operation;
         let conflict = request.conflict;
@@ -414,3 +427,7 @@ fn path_label(ui: &mut egui::Ui, path: &Path) -> egui::Response {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/retained_areas/mod.rs"]
+mod retained_areas;

@@ -1,5 +1,38 @@
 # P08 conflict dialog handoff
 
+## S013-R02 retained modal state correction
+
+- Fix baseline: `83251c0dee036dc5f5efecb9a9e07bac2930af48`, exact checkout and branch below. The frozen correction is the component-only commit containing this section; resolve with the candidate command below.
+- Write boundary for this correction: `components/conflict-dialog/src/lib.rs`, `components/conflict-dialog/tests/**`, and this document only. Existing `src/tests.rs` and its sixteen assertions/tests are unchanged. Supervisor-owned dirty `PROGRESS.md` remains untouched and unstaged. No manifest, lock, Taskfile, root/main/sibling source, executor, filesystem, clipboard or enablement changes.
+- Source finding: baseline `src/lib.rs:283-284` derived the Modal Area/Layer ID from operation and conflict. `finish` cleared Rust request/policy only. Installed `C:/Users/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egui-0.36.2/src/memory/mod.rs:1236-1241` inserts each Area and appends each new layer. Its `end_pass:1358-1405` rebuilds order bookkeeping without pruning hidden areas/layers. `containers/modal.rs` passes the modal ID to its foreground Area. Changing only to an operation-specific ID would still leak across controllers.
+- Fix: one `mado-conflict-presenter` Area/Layer identity per window Context, reused across sequential requests and new operation controllers. A `push_id` child scope retains operation/conflict-specific button and checkbox identities. First-frame gating now covers Escape explicitly too, because a reused layer can already be topmost when the request changes. Fresh/repeated/modified keys and stale pointer releases remain refused; Enter Skip, focused Space, later Escape Cancel, exact-type operation policy, file-only Replace and answer-frame input ownership remain intact.
+- Host contract: draw at most one conflict presenter in a window Context at a time. F12.3 supplies one active mutating operation. Keep other controllers as operation state if needed, but never draw two conflict presenters concurrently. The existing top-modal-layer guard remains for other modal kinds; this fix adds no presenter manager and does not permit background input through another modal.
+- New regression: `tests/retained_areas/mod.rs`, included in the existing `--lib` suite. It exercises 384 requests, 32 increasing conflict IDs in each of twelve newly created operation controllers, sharing one Context. It hides each request for two frames and reads actual retained `Memory::layer_ids` and `AreaState::load`, not visible-layer counts. Retained IDs must stay equal to the first-request baseline across requests, finish and controller retirement. Each corresponding action and checkbox ID must change between requests and between operations.
+- Red evidence before production edits: focused command below exited 101 at operation 1 / conflict 2. Both retained layers and retained areas grew from background plus conflict 1 to background plus conflicts 1 and 2. Sixteen existing tests were filtered, not changed.
+- First coherent fixed-suite run: retained-state regression passed, but existing `tests::repeated_or_modified_keys_do_not_answer_later_requests` failed at `src/tests.rs:538`, opening-frame decision refusal. Reused topmost layers exposed the old Escape-before-first-frame ordering. Moving the fresh/top guard ahead of Escape corrected it. No assertions were removed or weakened; the next focused and complete runs passed.
+
+Commands ran with explicit component cwd:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog/components/conflict-dialog
+cargo test --locked --offline --lib retained_areas_and_layers_are_bounded_across_requests_and_controllers --target-dir C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog/components/conflict-dialog/target
+RED before production edits, exit 101; final PASS, 1 passed / 16 filtered
+cargo fmt
+PASS, formatted only owned changed source/tests; original src/tests.rs unchanged
+cargo fmt --check
+PASS
+cargo check --locked --offline --all-targets --target-dir C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog/components/conflict-dialog/target
+PASS, incremental
+cargo test --locked --offline --lib --target-dir C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog/components/conflict-dialog/target
+PASS, 17 passed / 0 failed / 0 ignored, including all original sixteen tests
+cd C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog
+git diff --check
+git diff --cached --check
+PASS; complete owned delta inspected before commit
+```
+
+No native GUI or data probes ran. This correction addresses the review blocker only; F10.4/F10.6 remain partial decision-control preparation, not accepted application behavior. Integration, production enablement, native interaction, scaling and Narrator remain pending. Ready for fresh independent exact-head review before any supervisor integration.
+
 ## Candidate and ownership
 
 - Checkout: `C:/SANDBOX/WORKTREES/mado-explorer/conflict-dialog`
@@ -27,7 +60,7 @@ The standalone library is `mado_conflict_dialog`, with egui exactly `0.36.2`, ma
 
 - Skip, Keep both, Replace, Cancel are actual buttons with tested pointer activation. Replace is visibly disabled for folders, mixed types, and Other entries, and also refused by the controller.
 - Enter always chooses Skip, even with Replace focused. Tab/Shift+Tab use egui focus; Space activates the focused action or toggles the focused checkbox. Escape explicitly emits Cancel for this operation. Default focus is Skip once egui completes its initial modal sizing pass.
-- Opening-frame button/Enter/Space activations and held/repeated or modified decision keys cannot answer a new request. Escape remains an explicit non-destructive Cancel. Widgets use operation/request-scoped egui identities. Keyboard click flags cached by egui are suppressed when processing decision keys.
+- Opening-frame button/Enter/Space/Escape activations and held/repeated or modified decision keys cannot answer a new request. After the first frame, Escape is an explicit non-destructive Cancel. Widgets use operation/request-scoped egui identities within one window-scoped modal Area. Keyboard click flags cached by egui are suppressed when processing decision keys.
 - Paths use visually truncated, non-selectable labels with full display text on hover. Only display uses `to_string_lossy`; requests and responses preserve `PathBuf`. Tests retain Unicode/long paths, verbatim paths, and unpaired UTF-16. Hover output contains both complete supplied display paths.
 - One focused built-in suite has 16 passing headless tests. It covers the controls above, one-shot immutable responses, stale/duplicate and wrong-operation refusal, pending replacement, independent operations, exact-compatible policies, incompatible directory/type conflicts, Cancel/finish cleanup, checkbox reset, held keys, and multi-pass input ownership without response replay.
 - Generated fixtures are synthetic paths. No fixture files are opened, created, renamed, transferred, or removed.
