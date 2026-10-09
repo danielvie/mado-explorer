@@ -1,0 +1,28 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List operation-drawer component tasks
+    cmds:
+      - task --list
+  run:
+    dir: ../..
+    desc: Render generated operation requests headlessly without desktop or filesystem I/O
+    cmds:
+      - cargo run --manifest-path components/operation-drawer/Cargo.toml --target-dir target/p09 --locked --offline --example generated
+  test:
+    dir: ../..
+    desc: Run focused headless operation-drawer controller and input checks
+    cmds:
+      - cargo test --manifest-path components/operation-drawer/Cargo.toml --target-dir target/p09 --locked --offline --test drawer_ui
+  check:
+    dir: ../..
+    desc: Check component formatting and compile every component target
+    cmds:
+      - cargo fmt --manifest-path components/operation-drawer/Cargo.toml --check
+      - cargo check --manifest-path components/operation-drawer/Cargo.toml --target-dir target/p09 --locked --offline --all-targets
+  clean:
+    dir: ../..
+    desc: Remove only generated worktree root target/p09 build output
+    cmds:
+      - cargo clean --manifest-path components/operation-drawer/Cargo.toml --target-dir target/p09
