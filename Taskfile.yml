@@ -19,6 +19,12 @@ tasks:
       - task test:pdf
       - task test:summary
       - task test:conflict
+      - task test:raster
+
+  test:raster:
+    desc: Test accepted raster controls, ordered gestures and modal ownership
+    cmds:
+      - cargo test --locked --manifest-path components/raster-viewport/Cargo.toml --target-dir target/p07
 
   test:conflict:
     desc: Test accepted conflict controls and bounded request-epoch presentation
