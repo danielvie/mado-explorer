@@ -13,7 +13,7 @@ Do not shrink scope, change framework, or mark unavailable manual checks as pass
 - Reviewer: read-only, fresh-context review of risky filesystem changes and milestone diffs. Report concrete correctness/security/data-loss findings with source evidence; style preferences and speculative improvements are not blockers.
 - Scout/researcher: optional bounded discovery or external API/licensing work. Oracle: optional escalation for a consequential tradeoff or persistent disagreement.
 
-Keep one writer per checkout. Initially work serially. Later parallel writers require independent ownership and isolated worktrees; integration stays supervisor-owned.
+Keep one writer per checkout. Parallel writers require independent ownership and isolated worktrees; integration stays supervisor-owned. User-approved capacity: up to five shared implementation/fresh-rework writers, up to three concurrent fresh read-only reviewers, and one separate serial integrator. No fixed feature/fix reservation; prioritize concrete fixes. Ceilings are not quotas, and queued/finished candidates are not active writers. Process each lane's completion promptly; review and independent writing may overlap integration. Refill a lane from updated accepted main only after its own approval, integration and validation, without a group barrier. Existing above-cap agents may finish; defer new launches until capacity is available.
 
 ## Slice loop
 
