@@ -2,29 +2,30 @@
 
 ## Current state
 
-- Baseline: commit d65061a; specification and design exist, application not yet built.
+- Baseline: S001 accepted; a runnable read-only Rust/eframe/wgpu explorer exists.
 - Implementation policy: AGENTS.md. Scope and acceptance contracts: SPEC.md.
 - Current checkpoint: 1, read-only explorer.
-- Active slice: S001, ready to launch.
-- Next supervisor action: launch the worker, consume its result, inspect the diff and focused checks, then accept/commit or classify a blocker.
-- No acceptance criteria are verified yet. Manual/OS checks stay pending until actually performed.
+- Active slice: S002, sorting and recoverable navigation, ready to launch.
+- Next supervisor action: launch S002, inspect its diff and focused checks, then accept/commit or classify a blocker.
+- Three criteria are implemented with pending manual checks; no criterion is fully verified yet. Partial behavior does not count as a completed criterion.
 
-## Active slice S001
+## Active slice S002
 
-- Behavior: runnable eframe/wgpu application with a virtualized, read-only directory table and background directory loading; show loading, empty, missing and inaccessible states.
-- Targets: F01.1, F01.4, F01.5 and the directory-table portion of F14.1. Partial behavior does not count as a completed criterion.
-- Write boundary: Cargo.toml, Cargo.lock, src/, Taskfile.yml, and a concise README.md if needed for startup instructions. The supervisor owns this tracker and AGENTS.md.
-- Focused check: disposable-directory enumeration/error checks and a deterministic stale-result regression; format/compile checks. Actual GUI appearance/startup is a separate smoke check, pending if unavailable.
-- Exclusions: filesystem mutations, previews, tabs/splits, finder, broad architecture, exhaustive UI automation and benchmarks.
+- Behavior: deterministic folders-first column sorting off the UI thread, and back/forward/up/breadcrumb/path navigation that retains the previous usable location/history when a new destination fails.
+- Targets: F01.2 and F01.3. Selection-preservation coverage for F01.2 remains pending until selection is implemented. Missing-current-location recovery also contributes to F13.2.
+- Write boundary: src/ and README.md; Cargo.toml/Cargo.lock only if a concrete requirement justifies a dependency. The supervisor owns this tracker, AGENTS.md and the spec/design.
+- Focused check: deterministic sort/tie/unknown-value checks plus navigation history, failed-destination recovery and stale completion checks; formatting and incremental compilation.
+- Exclusions: filesystem mutations, previews, tabs/splits, finder, full selection/filtering, exhaustive UI automation and benchmarks.
 - Handoff: changed paths, exact checks/results, complete versus partial IDs, remaining risks, and next useful slice. Worker does not commit or change criterion statuses.
 
 ## Accepted slices
 
-None yet.
+- S001: native read-only directory browser, background progressive generation-safe loading, virtualized table and timestamp/error display. Supervisor inspected all source and reran `cargo fmt --check`, `cargo check`, seven directory tests and the headless table-geometry regression: eight checks passed. Worker demonstrated native startup and normal shutdown. Visual interaction, real ACL/unavailable-drive and actual slow-device checks remain pending. No mutations are enabled.
 
 ## Blockers and pending manual checks
 
-- First native build/dependency setup is pending; initial compilation is not a recurring verification gate.
+- Native bootstrap/build succeeded. No current implementation blocker.
+- Supervisor attempted a disposable-fixture window capture, but Windows did not grant foreground access. Capture was refused before reading any desktop pixels; the helper closed its own process and removed its fixture. Visual acceptance remains pending rather than delaying unrelated work.
 - Windows GUI smoke, Narrator, real clipboard interoperability, cross-volume operations, and clean-machine packaging will be checked at their relevant checkpoints, not declared passed in advance.
 
 ## Acceptance tracker
@@ -33,13 +34,13 @@ Statuses: Not started, In progress, Implemented, Verified, Blocked. Evidence mus
 
 | Criterion | Status | Requirement summary | Evidence / remaining work |
 | --- | --- | --- | --- |
-| F01.1 | In progress | Opening an accessible folder shows its immediate entries with name, type, modified time, and size for regular files | S001 planned; no completion or verification claim |
-| F01.2 | Not started | Folders sort before files |  |
-| F01.3 | Not started | Back, forward, up, breadcrumbs, and an editable full path navigate the active tab only |  |
-| F01.4 | In progress | Empty folders, loading, access denied, missing folders, and unavailable drives have distinct visible states with retry/navigation available. | S001 planned; no completion or verification claim |
-| F01.5 | In progress | Directory enumeration and metadata loading run away from the UI thread | S001 planned; no completion or verification claim |
+| F01.1 | Implemented | Opening an accessible folder shows its immediate entries with name, type, modified time, and size for regular files | S001: native paths, immediate-entry metadata, UTC time and unknown folder size; disposable metadata and headless geometry checks passed. Actual visual/interaction smoke pending. |
+| F01.2 | In progress | Folders sort before files | S002 planned: background column sorting and deterministic ties; path-based selection preservation will be exercised after selection exists. |
+| F01.3 | In progress | Back, forward, up, breadcrumbs, and an editable full path navigate the active tab only | S001 supplies editable path and folder activation only. S002 adds history/up/breadcrumbs and failed-destination recovery; multiple-tab isolation later. |
+| F01.4 | Implemented | Empty folders, loading, access denied, missing folders, and unavailable drives have distinct visible states with retry/navigation available. | S001: explicit UI states and retry; real empty/missing/not-folder and synthetic denied/device checks pass. Real ACL/drive and interactive UI verification pending. |
+| F01.5 | Implemented | Directory enumeration and metadata loading run away from the UI thread | S001: two workers, coalesced requests, bounded batches and generation guards; cancellation/stale/latest-request tests pass. Actual slow/uninterruptible-device smoke pending. |
 | F01.6 | Not started | Unicode names and supported long paths work without lossy conversions |  |
-| F01.7 | Not started | Double-click or Enter opens a folder in the current tab, or opens a regular file using the OS default application |  |
+| F01.7 | Not started | Double-click or Enter opens a folder in the current tab, or opens a regular file using the OS default application | S001 has folder activation only; full criterion awaits OS-default regular-file opening and keyboard/selection integration. |
 | F02.1 | Not started | Click selects one entry; Ctrl+click toggles entries; Shift+click selects a range in the current displayed order |  |
 | F02.2 | Not started | Arrow keys, Home, End, Page Up, and Page Down move the active row and keep it visible |  |
 | F02.3 | Not started | Selection belongs to the tab |  |
@@ -122,7 +123,7 @@ Statuses: Not started, In progress, Implemented, Verified, Blocked. Evidence mus
 | F13.7 | Not started | A minimal context menu provides Open, Copy, Cut, Paste, Rename, Trash, and Properties/basic details with valid enablement |  |
 | F13.8 | Not started | Dragging selected entries between panes requests Copy by default or Move with Shift |  |
 | F13.9 | Not started | Inbound external file drops copy into the targeted location after validation and conflict handling |  |
-| F14.1 | In progress | Use virtualized rows | S001 planned; no completion or verification claim |
+| F14.1 | In progress | Use virtualized rows | S001: show_rows and background filesystem reads; UI update has no I/O/sorting. Remaining sort/filter/preview paths must also satisfy this criterion as implemented. |
 | F14.2 | Not started | On a recorded reference Windows machine, a generated 20,000-entry local directory remains navigable during enumeration |  |
 | F14.3 | Not started | On the same benchmark, ordinary scrolling reaches at least 30 frames/sec and preview caches stay within their documented budget |  |
 | F14.4 | Not started | At 100%, 150%, and 200% display scaling, controls and dialogs do not overlap or clip their actions |  |
