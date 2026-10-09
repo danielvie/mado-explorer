@@ -1,0 +1,32 @@
+version: '3'
+
+env:
+  CARGO_TARGET_DIR: '{{.TASKFILE_DIR}}/target'
+
+tasks:
+  default:
+    desc: List component tasks
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - task --list
+  run:
+    desc: Run generated headless egui demonstration without filesystem operations
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo run --locked --offline --example generated
+  test:
+    desc: Test conflict controls and immutable decision routing
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo test --locked --offline --lib
+  check:
+    desc: Check formatting and all component targets
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo fmt --check
+      - cargo check --locked --offline --all-targets
+  clean:
+    desc: Remove only this component's generated target output
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo clean --target-dir '{{.TASKFILE_DIR}}/target'
