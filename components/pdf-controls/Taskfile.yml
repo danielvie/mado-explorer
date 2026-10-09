@@ -1,0 +1,29 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List component tasks
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - task --list
+  run:
+    desc: Run generated headless PDF controls without reading files or rendering pages
+    dir: '{{.TASKFILE_DIR}}/../..'
+    cmds:
+      - cargo run --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10 --example generated
+  test:
+    desc: Test page bounds, stale input, pane ownership and bounded presentation IDs
+    dir: '{{.TASKFILE_DIR}}/../..'
+    cmds:
+      - cargo test --locked --offline --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10
+  check:
+    desc: Check formatting and all component targets
+    dir: '{{.TASKFILE_DIR}}/../..'
+    cmds:
+      - cargo fmt --manifest-path components/pdf-controls/Cargo.toml --check
+      - cargo check --locked --offline --all-targets --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10
+  clean:
+    desc: Remove only generated PDF controls build output in root target/p10
+    dir: '{{.TASKFILE_DIR}}/../..'
+    cmds:
+      - cargo clean --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10
