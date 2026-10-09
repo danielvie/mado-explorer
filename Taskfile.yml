@@ -24,6 +24,12 @@ tasks:
       - task test:source
       - task test:pdf-service
       - task test:pdf-controls
+      - task test:keep-both
+
+  test:keep-both:
+    desc: Test accepted read-only native Keep both name planning
+    cmds:
+      - cargo test --locked --manifest-path components/keep-both-name/Cargo.toml --target-dir target/p13
 
   test:pdf-controls:
     desc: Test accepted PDF page metadata, drafts and input epochs
