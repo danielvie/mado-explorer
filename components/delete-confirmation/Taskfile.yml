@@ -1,0 +1,32 @@
+version: '3'
+
+env:
+  CARGO_TARGET_DIR: '{{.TASKFILE_DIR}}/../../target/p15'
+
+tasks:
+  default:
+    desc: List component tasks
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - task --list
+  run:
+    desc: Run safe generated headless confirmation demo with no filesystem access
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo run --locked --offline --example generated
+  test:
+    desc: Test confirmation input guards and captured native requests headlessly
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo test --locked --offline --lib
+  check:
+    desc: Check component formatting and compile all targets offline
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo fmt --check
+      - cargo check --locked --offline --all-targets
+  clean:
+    desc: Remove only generated worktree target/p15 build output
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cargo clean --target-dir '{{.TASKFILE_DIR}}/../../target/p15'
