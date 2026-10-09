@@ -100,22 +100,23 @@ impl Selection {
     }
 
     pub fn reconcile(&mut self, entries: &[Arc<Entry>]) {
-        // Called only on successfully completed enumeration, using raw native
-        // identities (the final sorted projection may still be in flight).
+        // Successful enumeration can prune vanished paths before projection completes.
         let present: HashSet<_> = entries.iter().map(|entry| &entry.path).collect();
-        self.paths.retain(|path| present.contains(path));
-        if self
-            .active
-            .as_ref()
-            .is_some_and(|path| !present.contains(path))
-        {
+        self.retain_present(|path| present.contains(path));
+    }
+
+    pub fn reconcile_visible(&mut self, present: &HashSet<PathBuf>) {
+        // Only authoritative completed projections prune hidden identities.
+        // The worker builds this set; UI work scales with retained selection, not rows.
+        self.retain_present(|path| present.contains(path));
+    }
+
+    fn retain_present(&mut self, contains: impl Fn(&PathBuf) -> bool) {
+        self.paths.retain(&contains);
+        if self.active.as_ref().is_some_and(|path| !contains(path)) {
             self.active = None;
         }
-        if self
-            .anchor
-            .as_ref()
-            .is_some_and(|path| !present.contains(path))
-        {
+        if self.anchor.as_ref().is_some_and(|path| !contains(path)) {
             self.anchor = None;
         }
     }

@@ -272,6 +272,8 @@ impl DirectoryState {
                 self.revision += 1;
             }
             Update::Finished(result) => {
+                // Completion needs its own projection: progressive rows cannot prune selection.
+                self.revision += 1;
                 self.status = match result {
                     Ok(()) => Status::Ready,
                     Err(failure) => Status::Failed(failure),
@@ -738,7 +740,7 @@ mod tests {
             });
             let key = nav.key();
             if requested != Some(key) {
-                sorter.request(key, nav.visible().raw_entries.clone());
+                sorter.request(key, nav.visible().raw_entries.clone(), nav.filter.clone());
                 requested = Some(key);
             }
             if let Some(sorted) = sorter.take() {

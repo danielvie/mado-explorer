@@ -1,7 +1,9 @@
 use crate::directory::{Entry, EntryKind};
 use std::{
     cmp::Ordering,
+    collections::HashSet,
     io,
+    path::PathBuf,
     sync::{Arc, Condvar, Mutex},
     thread,
 };
@@ -73,16 +75,81 @@ pub struct Key {
     pub generation: u64,
     pub revision: u64,
     pub sort: Sort,
+    pub query_revision: u64,
 }
 
 pub struct Sorted {
     pub key: Key,
     pub entries: Arc<Vec<Arc<Entry>>>,
+    pub visible_paths: HashSet<PathBuf>,
+}
+
+impl Sorted {
+    fn new(key: Key, entries: Arc<Vec<Arc<Entry>>>) -> Self {
+        let visible_paths = entries.iter().map(|entry| entry.path.clone()).collect();
+        Self {
+            key,
+            entries,
+            visible_paths,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(key: Key, entries: Arc<Vec<Arc<Entry>>>) -> Self {
+        Self::new(key, entries)
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn project_for_test(key: Key, entries: Arc<Vec<Arc<Entry>>>, query: &str) -> Sorted {
+    project(Request {
+        key,
+        entries,
+        query: query.into(),
+    })
+}
+
+struct Request {
+    key: Key,
+    entries: Arc<Vec<Arc<Entry>>>,
+    query: String,
+}
+
+// Basic fuzzy subsequence, not ranked search: column order remains authoritative.
+// Unicode lowercase is stdlib-only, not locale-sensitive case folding or normalization.
+fn matches_name(name: &str, query: &[char]) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let mut remaining = query.iter();
+    let mut wanted = remaining.next();
+    for character in name.chars().flat_map(char::to_lowercase) {
+        if wanted == Some(&character) {
+            wanted = remaining.next();
+            if wanted.is_none() {
+                return true;
+            }
+        }
+    }
+    wanted.is_none()
+}
+
+fn project(request: Request) -> Sorted {
+    // Normalize once here, never scan names or clone entry vectors on UI update.
+    let query: Vec<_> = request.query.chars().flat_map(char::to_lowercase).collect();
+    let mut entries: Vec<_> = request
+        .entries
+        .iter()
+        .filter(|entry| matches_name(&entry.name, &query))
+        .cloned()
+        .collect();
+    entries.sort_unstable_by(|a, b| request.key.sort.compare(a, b));
+    Sorted::new(request.key, Arc::new(entries))
 }
 
 #[derive(Default)]
 struct Mailbox {
-    request: Option<Sorted>,
+    request: Option<Request>,
     result: Option<Sorted>,
     latest: Option<Key>,
     shutdown: bool,
@@ -111,17 +178,13 @@ impl Sorter {
                         }
                         mailbox.request.take().unwrap()
                     };
-                    let mut entries = request.entries.as_ref().clone();
-                    entries.sort_unstable_by(|a, b| request.key.sort.compare(a, b));
+                    let sorted = project(request);
                     let mut mailbox = lock.lock().unwrap();
                     if mailbox.shutdown {
                         return;
                     }
-                    if mailbox.latest == Some(request.key) {
-                        mailbox.result = Some(Sorted {
-                            key: request.key,
-                            entries: Arc::new(entries),
-                        });
+                    if mailbox.latest == Some(sorted.key) {
+                        mailbox.result = Some(sorted);
                         repaint();
                     }
                 }
@@ -129,11 +192,15 @@ impl Sorter {
         Ok(Self { shared })
     }
 
-    pub fn request(&self, key: Key, entries: Arc<Vec<Arc<Entry>>>) {
+    pub fn request(&self, key: Key, entries: Arc<Vec<Arc<Entry>>>, query: String) {
         let (lock, wake) = &*self.shared;
         let mut mailbox = lock.lock().unwrap();
         mailbox.latest = Some(key);
-        mailbox.request = Some(Sorted { key, entries });
+        mailbox.request = Some(Request {
+            key,
+            entries,
+            query,
+        });
         mailbox.result = None;
         wake.notify_one();
     }
@@ -183,15 +250,18 @@ mod tests {
         let first = Key {
             generation: 1,
             revision: 1,
+            query_revision: 0,
             sort: Sort::default(),
         };
         sorter.request(
             first,
             Arc::new(vec![entry("old", EntryKind::File, Some(1), None)]),
+            String::new(),
         );
         let latest = Key {
             generation: 2,
             revision: 3,
+            query_revision: 0,
             sort: Sort {
                 column: Column::Size,
                 descending: true,
@@ -204,6 +274,7 @@ mod tests {
                 entry("folder", EntryKind::Folder, None, None),
                 entry("large", EntryKind::File, Some(2), None),
             ]),
+            String::new(),
         );
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         let result = loop {
@@ -224,6 +295,86 @@ mod tests {
                 .map(|e| e.name.as_str())
                 .collect::<Vec<_>>(),
             ["folder", "large", "small"]
+        );
+    }
+
+    #[test]
+    fn fuzzy_filter_is_case_insensitive_name_only_and_keeps_column_order() {
+        let key = Key {
+            generation: 1,
+            revision: 1,
+            query_revision: 1,
+            sort: Sort {
+                column: Column::Size,
+                descending: true,
+            },
+        };
+        let data = Arc::new(vec![
+            entry("ReadMe.TXT", EntryKind::File, Some(3), None),
+            entry("remote", EntryKind::Folder, None, None),
+            entry("room", EntryKind::File, Some(9), None),
+            entry("Ångström", EntryKind::File, Some(1), None),
+        ]);
+        let names = |query: &str| {
+            project_for_test(key, data.clone(), query)
+                .entries
+                .iter()
+                .map(|e| e.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names("RM"), ["remote", "room", "ReadMe.TXT", "Ångström"]);
+        assert_eq!(names("rdtxt"), ["ReadMe.TXT"]);
+        assert_eq!(names("åÖ"), ["Ångström"]);
+        assert_eq!(names(""), ["remote", "room", "ReadMe.TXT", "Ångström"]);
+        assert!(names("zz").is_empty());
+        assert!(names("txtread").is_empty()); // character order matters
+        let mut row = entry("other", EntryKind::File, None, None);
+        Arc::get_mut(&mut row).unwrap().path = PathBuf::from("ReadMe.TXT/other");
+        assert!(
+            project_for_test(key, Arc::new(vec![row]), "rdtxt")
+                .entries
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn background_projection_coalesces_fast_query_and_data_edits() {
+        let sorter = Sorter::new(Arc::new(|| {})).unwrap();
+        let mut key = Key {
+            generation: 1,
+            revision: 1,
+            query_revision: 0,
+            sort: Sort::default(),
+        };
+        for (revision, query) in [(1, "a"), (2, "z"), (3, "AL")] {
+            key.query_revision = revision;
+            key.revision = revision;
+            sorter.request(
+                key,
+                Arc::new(vec![
+                    entry("alpha", EntryKind::File, None, None),
+                    entry("zeta", EntryKind::File, None, None),
+                ]),
+                query.into(),
+            );
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let result = loop {
+            if let Some(result) = sorter.take() {
+                break result;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "projection worker did not finish"
+            );
+            thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(result.key, key);
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].name, "alpha");
+        assert_eq!(
+            result.visible_paths,
+            [PathBuf::from("alpha")].into_iter().collect()
         );
     }
 

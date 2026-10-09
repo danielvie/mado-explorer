@@ -2,20 +2,20 @@
 
 ## Current state
 
-- Baseline: S001-S003 accepted; the read-only explorer has background loading/sorting, recoverable navigation and path-based selection.
+- Baseline: S001-S004 accepted; the read-only explorer has background loading/projection, recoverable navigation, selection and current-folder filtering.
 - Implementation policy: AGENTS.md. Scope and acceptance contracts: SPEC.md.
 - Current checkpoint: 1, read-only explorer.
-- Active slice: S004, current-folder fuzzy filtering, ready to launch.
-- Next supervisor action: launch S004, inspect its diff and focused checks, then accept/commit or classify a blocker.
-- Eight criteria are implemented with pending manual checks; no criterion is fully verified yet. Partial behavior does not count as a completed criterion.
+- Active slice: S005, Windows default-file opening, ready to launch.
+- Next supervisor action: launch S005, inspect its diff and focused checks, then accept/commit or classify a blocker.
+- Nine criteria are implemented with pending manual checks; no criterion is fully verified yet. Partial behavior does not count as a completed criterion.
 
-## Active slice S004
+## Active slice S005
 
-- Behavior: case-insensitive fuzzy name filtering of the current folder on the projection worker, displayed/total counts, no-match feedback and visible-only selection.
-- Targets: F06.1-F06.3 for the current browsing context, F02.5 filter-editor ownership and continued F14.1 off-thread projection. Per-tab isolation is completed when tabs exist.
-- Write boundary: src/ and README.md. The supervisor owns this tracker, AGENTS.md and the spec/design.
-- Focused check: case-insensitive subsequence matching, empty/no-match/clear behavior, query/data-generation staleness, hidden-selection removal, visible-only Ctrl+A and editor key ownership; formatting and incremental compilation.
-- Exclusions: filesystem mutations, regular-file OS opening, previews, tabs/splits, folder finder, recursive indexing/content search, exhaustive UI automation and benchmarks.
+- Behavior: explicit double-click/active-row Enter launches a regular file through its Windows default application, with immutable native-path capture and visible launch failures.
+- Targets: complete F01.7 for regular files/folders. This contributes path-capture groundwork but does not complete destructive-operation identity requirements in F02.4.
+- Write boundary: src/, README.md and Cargo.toml/Cargo.lock if a concrete native API dependency is needed. The supervisor owns this tracker, AGENTS.md and the spec/design.
+- Focused check: fresh visible activation routing, editor/pending-filter guards, captured native paths despite later selection/navigation changes, and reported launch failures; formatting and incremental compilation. Automated checks must not launch arbitrary files or alter associations/registry.
+- Exclusions: filesystem mutation engine, previews, tabs/splits, finder, hidden/system visibility and long-path refinements, full shell menus, batch opening and exhaustive UI automation.
 - Handoff: changed paths, exact checks/results, complete versus partial IDs, remaining risks, and next useful slice. Worker does not commit or change criterion statuses.
 
 ## Accepted slices
@@ -25,6 +25,8 @@
 - S002: worker-built shared snapshots and background deterministic column sorting, transactional back/forward/up/breadcrumb/path navigation, and focused-editor shortcut gating. Supervisor inspected source and reran 17 affected checks successfully; existing table regression had passed in the worker's final 18-test run. Inspection found and fixed a drive-root breadcrumb bug: prefix-only drive-relative paths such as C: are not exposed as root destinations. Navigation/editor tests and compilation were rerun after that fix. GUI/manual and selection-preservation checks remain pending.
 
 - S003: whole-row native-path click/toggle/range/Ctrl+A selection, separate active/anchor identities, keyboard first/last/page movement and virtualized scrolling, successful-refresh pruning and failed-navigation preservation. Supervisor inspected production source and reran 15 distinct affected tests successfully, plus formatting/compilation. Pending-destination rows pause selection/activation; no mutations or file launches are enabled. Native interaction/scaling/Narrator and linear-lookup performance measurements remain pending.
+
+- S004: stdlib Unicode-lowercase subsequence name filtering on the projection worker, query/completion revision guards, fresh counts/no-match/Clear UI and visible-path selection reconciliation. Supervisor approved pausing stale row commands and nonempty-filter incomplete/failed listings while leaving navigation/retry/filter controls available. Supervisor inspected source and reran 19 distinct affected checks plus formatting/compile checks successfully. Filter survives ordinary navigation/refresh. Per-tab clauses, future mutating-command integration, native interaction and measured performance remain pending.
 
 ## Blockers and pending manual checks
 
@@ -44,12 +46,12 @@ Statuses: Not started, In progress, Implemented, Verified, Blocked. Evidence mus
 | F01.4 | Implemented | Empty folders, loading, access denied, missing folders, and unavailable drives have distinct visible states with retry/navigation available. | S001: explicit UI states and retry; real empty/missing/not-folder and synthetic denied/device checks pass. Real ACL/drive and interactive UI verification pending. |
 | F01.5 | Implemented | Directory enumeration and metadata loading run away from the UI thread | S001: two workers, coalesced requests, bounded batches and generation guards; cancellation/stale/latest-request tests pass. Actual slow/uninterruptible-device smoke pending. |
 | F01.6 | Not started | Unicode names and supported long paths work without lossy conversions |  |
-| F01.7 | Not started | Double-click or Enter opens a folder in the current tab, or opens a regular file using the OS default application | S001 has folder activation only; full criterion awaits OS-default regular-file opening and keyboard/selection integration. |
+| F01.7 | In progress | Double-click or Enter opens a folder in the current tab, or opens a regular file using the OS default application | S001-S004 supply fresh displayed-folder activation and editor ownership. S005 adds Windows default regular-file opening and captured-path error reporting. |
 | F02.1 | Implemented | Click selects one entry; Ctrl+click toggles entries; Shift+click selects a range in the current displayed order | S003: whole-row click/toggle/range/all, native non-Unicode identity and metadata/gap pointer regressions pass. Native GUI interaction pending; filtering integrates in S004. |
 | F02.2 | Implemented | Arrow keys, Home, End, Page Up, and Page Down move the active row and keep it visible | S003: boundaries/pages/Shift and active-row scroll targets pass state/headless checks at small and normal viewports. Native keyboard/visual verification pending. |
 | F02.3 | Not started | Selection belongs to the tab |  |
 | F02.4 | Not started | Commands operate on an immutable snapshot of selected paths taken when invoked |  |
-| F02.5 | In progress | Explorer shortcuts do not run while typing in the finder, filter, path editor, or rename field | S002-S003: path-editor/submitting ownership, exact modifiers and Enter versus other-control focus are regression-tested. S004 adds filter input; finder/rename later. |
+| F02.5 | In progress | Explorer shortcuts do not run while typing in the finder, filter, path editor, or rename field | S002-S004: path/filter TextEdit and submission-frame ownership, exact modifiers, Escape filter-focus exit and Enter versus other-control focus are regression-tested. Finder/rename later. |
 | F02.6 | Implemented | Refresh removes vanished selections while preserving surviving selected paths, rather than preserving row numbers. | S003: reconcile raw native paths only on successful current-generation completion; progressive/failed/stale results preserve identities. Survivor/disappearance/empty-folder tests pass; native refresh smoke pending. |
 | F03.1 | Not started | Ctrl+T or the plus button creates a tab at the current location |  |
 | F03.2 | Not started | Returning to a tab restores its location, history, filter, sort, selection, and scroll position |  |
@@ -69,9 +71,9 @@ Statuses: Not started, In progress, Implemented, Verified, Blocked. Evidence mus
 | F05.5 | Not started | Missing or inaccessible results display an error and leave the finder usable |  |
 | F05.6 | Not started | Users can bookmark/unbookmark a location and remove a recent location |  |
 | F05.7 | Not started | This is navigation over known locations and explicit path expansion, not an implicit full-drive index or recursive content search. |  |
-| F06.1 | In progress | Typing in the filter performs case-insensitive fuzzy matching against names in the current directory | S004 planned; no completion claim. |
-| F06.2 | In progress | Show displayed/total counts and a no-match state | S004 planned for the current context; future tabs must retain their own filter. |
-| F06.3 | In progress | File commands use only the visible selection | S004 planned: hidden entries deselected and Ctrl+A visible-only; mutating file commands will use the same fresh-projection boundary when introduced. |
+| F06.1 | Implemented | Typing in the filter performs case-insensitive fuzzy matching against names in the current directory | S004: worker-side Unicode-lowercase subsequence name matching, empty/clear restoration without navigation and case/Unicode/name-only/order regressions pass. Literal whitespace; full locale folding/normalization is not promised. Native interaction pending. |
+| F06.2 | In progress | Show displayed/total counts and a no-match state | S004 implements fresh displayed/total counts, incomplete annotations and explicit no-match state with UI regressions. Independent per-tab filter retention awaits tabs; native verification pending. |
+| F06.3 | In progress | File commands use only the visible selection | S004: hidden/active/anchor pruning only on complete fresh projection, visible-only Ctrl+A/folder activation and no resurrection on Clear are tested. Future file/mutating commands must share rows_selectable and capture current visible paths. |
 | F07.1 | Not started | With preview enabled, selecting one supported image displays it in that pane |  |
 | F07.2 | Not started | Fit, 100%, zoom, and pan work without distorting the aspect ratio |  |
 | F07.3 | Not started | Decode/resize away from the UI thread |  |
@@ -127,7 +129,7 @@ Statuses: Not started, In progress, Implemented, Verified, Blocked. Evidence mus
 | F13.7 | Not started | A minimal context menu provides Open, Copy, Cut, Paste, Rename, Trash, and Properties/basic details with valid enablement |  |
 | F13.8 | Not started | Dragging selected entries between panes requests Copy by default or Move with Shift |  |
 | F13.9 | Not started | Inbound external file drops copy into the targeted location after validation and conflict handling |  |
-| F14.1 | In progress | Use virtualized rows | S001-S002: show_rows plus worker enumeration/metadata/vector cloning/sorting with generation/revision keys. Full listings are not capped; filter/preview paths and performance measurements remain pending. |
+| F14.1 | In progress | Use virtualized rows | S001-S004: virtualized rows; worker enumeration/metadata/query normalization/matching/vector work/sorting/visible-path-set construction with generation/data/query/sort keys. Listings are not capped; preview paths and measurements pending. |
 | F14.2 | Not started | On a recorded reference Windows machine, a generated 20,000-entry local directory remains navigable during enumeration |  |
 | F14.3 | Not started | On the same benchmark, ordinary scrolling reaches at least 30 frames/sec and preview caches stay within their documented budget |  |
 | F14.4 | Not started | At 100%, 150%, and 200% display scaling, controls and dialogs do not overlap or clip their actions |  |

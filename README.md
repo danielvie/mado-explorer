@@ -1,6 +1,6 @@
 # Mado Explorer
 
-S003: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S004: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
@@ -16,8 +16,9 @@ task design-test                 # validates the reference
 Enter a folder path and press Enter/Go, double-click a folder row (or make it the
 active row and press Enter), or use Back, Forward, Up and the breadcrumb buttons.
 Alt+Left/Right/Up navigate; Refresh/F5 reloads. These shortcuts are suspended while
-the path editor has focus. Relative typed paths resolve against the **committed**
-location, including when a new destination is still loading. Breadcrumbs identify
+the path or filter editor has focus (including its submitting frame). Relative typed
+paths resolve against the **committed** location, including when a new destination
+is still loading. Breadcrumbs identify
 that committed location; an explicit Opening message identifies the pending
 listing shown progressively below it. A new location/history commits only when
 its enumeration succeeds. A failed destination restores the previous listing and
@@ -34,6 +35,26 @@ deterministic tie-breaker. Sorting uses native filesystem name ordering, not
 locale-aware or natural-number ordering. Sorting preserves selected paths, the
 active row and range anchor; subsequent ranges use the currently displayed order.
 
+Type in Filter to constrain immediate entry **names only**, using case-insensitive
+fuzzy subsequences: `rdtxt` matches `ReadMe.txt`. This is not recursive search,
+path/content search or fuzzy ranking; results retain the chosen column order.
+Clear (or delete the query) restores entries without changing location/history.
+The one current browsing context retains its filter through refresh and ordinary
+navigation, including Back/Forward; each destination is shown with that same query.
+Per-tab ownership will be added with tabs, not simulated now. Counts show displayed /
+total entries for a fresh projection, with an incomplete suffix during loading/errors.
+A completed fresh listing with zero matches explicitly says so; an empty folder
+remains distinct. While filter/sort changes are pending, old rows may stay visible,
+but row clicks, Ctrl+A, movement and activation are paused. With a nonempty filter,
+row commands also pause until enumeration succeeds and its complete projection is
+accepted. A failed/incomplete filtered read retains selection identities but offers
+retry/navigation/filter editing rather than commands on uncertain rows.
+
+Matching uses stdlib Unicode lowercase, not locale-aware full case folding or
+Unicode normalization; query whitespace is literal. Non-Unicode names match their
+lossy displayed name, while selection/activation continue to use native paths.
+No fuzzy dependency, index, debounce machinery or result-count cap is introduced.
+
 Click anywhere in a row to select it. Ctrl+click toggles a path; Shift+click replaces
 selection with the anchor-to-click range (Ctrl+Shift adds that range). Ctrl+A selects
 only the currently displayed entries. The selected count is visible above the table.
@@ -42,14 +63,21 @@ heading shows keyboard focus. Up/Down, Home/End and Page Up/Down move the active
 and scroll it into view; Shift extends/reduces the anchor range. With no active row,
 Down/Page Down/Home start at the first row and Up/Page Up/End at the last row. Plain
 movement replaces selection; a missing anchor falls back to the active row or target.
-Path-editor focus (including the frame that submits it) suspends browsing keys;
+Path/filter-editor focus (including the frame that submits it) suspends browsing keys;
+Ctrl+A selects editor text, not rows. Escape exits filter editing without clearing it;
 Enter on another focused control is not also folder activation.
 
 Refresh retains selection/active/anchor during empty or progressive snapshots and
 failed reads. Only a successfully completed listing removes vanished paths; surviving
-paths remain selected. Pending destination rows cannot be selected or activated until
-navigation commits. Failed destinations preserve the committed selection; successful
-navigation to another location clears it. Selection is scoped to the one current
+paths remain selected. Fresh completed filter projections deselect hidden native
+paths and remove hidden active/anchor identities. Still-visible selections survive filter/sort/refresh changes;
+clearing never resurrects hidden prior selections. Ctrl+A selects visible entries only.
+Progressive snapshots do not prove that a selected path disappeared. Future file
+commands must share `Navigation::rows_selectable` and capture only fresh visible
+selection; no mutating-command abstraction or file command is introduced here.
+Pending destination rows cannot be selected or activated until navigation commits
+and its projection is fresh. Failed destinations preserve the committed selection;
+successful navigation to another location clears it. Selection is scoped to the one current
 browsing context, not yet isolated across tabs/panes.
 
 Identity lookup for keyboard movement and range endpoints is intentionally O(n) in
@@ -59,7 +87,7 @@ not been performance-verified. If measured input latency exceeds its budget, bui
 native path-to-index projection on the sorting worker and publish it with the existing
 generation/revision key, rather than retaining row indices across sorting.
 
-No regular-file opening, filtering, previews, settings, tabs/splits or
+No regular-file opening, previews, settings, tabs/splits or
 mutations are implemented. Hidden entries are included. Paths used for folder
 activation, row identity, breadcrumbs and history stay native/lossless;
 display/path-editor text is lossy for non-Unicode names. Submitting the unchanged
@@ -76,20 +104,25 @@ pending location and a bounded eight-message snapshot/status queue. Enumeration
 still uses batches of at most 256 entries; after the first batch, cumulative
 snapshots are published at most every 50 ms plus the final snapshot. Snapshots
 share entry allocations, but each snapshot holds its own vector of entry handles.
-A separate sorting worker has one active sort, one coalesced pending request and
-one result slot. Cloning entry-handle vectors and sorting happen on workers, not
-in UI update. Sort results must match the visible listing's generation, data
-revision and sort choice. While sorting, the previous projection stays visible
-with a Sorting indicator. Rows remain virtualized. Loaded listings and their
-snapshot vectors are not size-capped; no memory/performance acceptance claim has
+A separate projection/sorting worker has one active projection, one coalesced pending
+request and one result slot. Query normalization, name matching, entry-vector building,
+sorting and visible-path-set building happen on that worker, not in UI update.
+Projection results must match the visible listing's generation, data/completion
+revision, query revision and sort choice. Returning quickly to the same query text
+still creates a newer query revision. Completion increments data revision so a
+progressive projection cannot masquerade as authoritative final data. While updating,
+the previous projection can stay visible with an Updating filter/sort indicator.
+Rows remain virtualized. Loaded listings and their snapshot vectors are not size-capped; no memory/performance acceptance claim has
 been made.
 
 Stale enumeration is cancelled between OS calls and rejected by navigation.
 OS calls themselves cannot be interrupted. If both enumeration workers are stuck
 on unavailable locations, a new listing waits, but input remains responsive.
 The upgrade path is cancellable platform I/O if measured workloads require it.
-A running sort is not interrupted, but obsolete results are discarded and only
-the latest pending request is processed next.
+A running projection is not interrupted, but obsolete results are discarded and only
+the latest pending request is processed next. If measured filter latency exceeds its
+budget, add cancellation checkpoints and worker-side normalized-name caching; measure
+first rather than changing the matching model or ranking.
 
 ## Pending Windows smoke procedure
 
@@ -127,12 +160,23 @@ Use only disposable folders containing child folders and small files:
    Verify late entries/sorts never populate the wrong listing and history changes
    only on successful latest navigation. Automated state/worker regressions do
    not substitute for a measured slow-drive interaction check.
+9. Select several fixture entries, then type a mixed-case subsequence filter. Check
+   chosen sort order, displayed/total counts, selected count and visible-only Ctrl+A.
+   Filtered-out selections/active/anchor must disappear only when the fresh completed
+   result arrives; clearing restores rows, not hidden prior selections. Try a no-match
+   query and an empty folder. Rapidly edit/clear, refresh and navigate while filtering:
+   old-query rows must not accept selection/activation, and incomplete filtered reads
+   must explain the pause. Refresh and Back/Forward retain the query. In Filter,
+   Ctrl+A/arrows/Enter/Alt navigation/F5 must not affect browsing; Escape exits editing.
+   Resize to the narrow viewport with all controls still reachable.
 
 GUI appearance/interaction, display scaling and Windows Narrator checks still
 require manual verification. S001's process-level startup/close smoke created the
 native window and exited with code 0; it did not verify displayed states. S002
 has automated sorting, navigation, background pipeline and headless shortcut
 checks. S003 adds selection-state, reconciliation, whole-row hit testing, editor
-ownership and virtualized keyboard-scroll regressions. These are not a
-foreground-capture or interactive GUI acceptance claim.
+ownership and virtualized keyboard-scroll regressions. S004 adds matching/projection
+staleness, authoritative visible-selection reconciliation, command pause/recovery,
+fresh count/no-match display and real headless filter-editor ownership checks.
+These are not a foreground-capture or interactive GUI acceptance claim.
 No destructive operations or personal-folder checks are needed for this slice.

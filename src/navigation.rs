@@ -27,6 +27,8 @@ pub struct Navigation {
     pub error: Option<(PathBuf, Failure)>,
     pub sort: Sort,
     pub sorted_key: Option<Key>,
+    pub filter: String,
+    query_revision: u64,
     active_generation: u64,
 }
 
@@ -41,6 +43,8 @@ impl Navigation {
             error: None,
             sort: Sort::default(),
             sorted_key: None,
+            filter: String::new(),
+            query_revision: 0,
             active_generation: 0,
         }
     }
@@ -160,11 +164,31 @@ impl Navigation {
         false
     }
 
+    pub fn set_filter(&mut self, query: String) {
+        if self.filter != query {
+            self.filter = query;
+            self.query_revision += 1;
+        }
+    }
+
+    pub fn projection_fresh(&self) -> bool {
+        self.sorted_key == Some(self.key())
+    }
+
+    // Future file commands must share this fresh visible-selection boundary.
+    // Filtered incomplete/failed reads retain identities but cannot expose them as sources.
+    pub fn rows_selectable(&self) -> bool {
+        self.pending.is_none()
+            && self.projection_fresh()
+            && (self.filter.is_empty() || matches!(self.current.status, Status::Ready))
+    }
+
     pub fn key(&self) -> Key {
         Key {
             generation: self.visible().generation,
             revision: self.visible().revision,
             sort: self.sort,
+            query_revision: self.query_revision,
         }
     }
 
@@ -175,6 +199,9 @@ impl Navigation {
         if let Some(pending) = &mut self.pending {
             pending.directory.entries = sorted.entries;
         } else {
+            if matches!(self.current.status, Status::Ready) {
+                self.selection.reconcile_visible(&sorted.visible_paths);
+            }
             self.current.entries = sorted.entries;
         }
         self.sorted_key = Some(sorted.key);
@@ -261,10 +288,7 @@ mod tests {
                 metadata_errors: 0,
             },
         });
-        nav.apply_sorted(Sorted {
-            key: nav.key(),
-            entries: nav.current.raw_entries.clone(),
-        });
+        nav.apply_sorted(Sorted::for_test(nav.key(), nav.current.raw_entries.clone()));
         let data = nav.current.raw_entries.clone();
         let displayed = nav.current.entries.clone();
         nav.begin(a.clone(), 3, Intent::Back);
@@ -315,16 +339,10 @@ mod tests {
         assert!(nav.back.is_empty());
         finish(&mut nav, 3, true);
         let entries = nav.current.entries.clone();
-        assert!(!nav.apply_sorted(Sorted {
-            key: stale_key,
-            entries: entries.clone()
-        }));
+        assert!(!nav.apply_sorted(Sorted::for_test(stale_key, entries.clone())));
         let key = nav.key();
         nav.sort.toggle(crate::sorting::Column::Size);
-        assert!(!nav.apply_sorted(Sorted {
-            key,
-            entries: entries.clone()
-        }));
+        assert!(!nav.apply_sorted(Sorted::for_test(key, entries.clone())));
         let key = nav.key();
         nav.apply(Response {
             generation: key.generation,
@@ -333,7 +351,7 @@ mod tests {
                 metadata_errors: 0,
             },
         });
-        assert!(!nav.apply_sorted(Sorted { key, entries }));
+        assert!(!nav.apply_sorted(Sorted::for_test(key, entries)));
         assert_eq!(nav.resolve("child"), nav.current.location.join("child"));
         assert_eq!(nav.back, vec![a]);
     }
@@ -352,19 +370,13 @@ mod tests {
             },
         };
         nav.apply(snapshot(1, data.clone()));
-        nav.apply_sorted(Sorted {
-            key: nav.key(),
-            entries: data.clone(),
-        });
+        nav.apply_sorted(Sorted::for_test(nav.key(), data.clone()));
         nav.selection.click(&data, 0, false, false);
         nav.selection.click(&data, 2, true, false);
         let paths = nav.selection.paths.clone();
         nav.sort.toggle(crate::sorting::Column::Name);
         let reversed = Arc::new(data.iter().rev().cloned().collect());
-        assert!(nav.apply_sorted(Sorted {
-            key: nav.key(),
-            entries: reversed
-        }));
+        assert!(nav.apply_sorted(Sorted::for_test(nav.key(), reversed)));
         assert_eq!(nav.selection.paths, paths);
         assert_eq!(nav.selection.active_index(&nav.current.entries), Some(0));
 
@@ -407,6 +419,167 @@ mod tests {
         finish(&mut nav, 6, true);
         assert!(nav.selection.paths.is_empty());
         assert!(nav.selection.active.is_none() && nav.selection.anchor.is_none());
+    }
+
+    fn filter_rows() -> Arc<Vec<Arc<crate::directory::Entry>>> {
+        let mut data = crate::selection::tests::rows(&["alpha", "beta", "alpine"]);
+        for row in Arc::get_mut(&mut data).unwrap() {
+            let row = Arc::get_mut(row).unwrap();
+            row.name = row.path.to_string_lossy().into_owned();
+        }
+        data
+    }
+
+    fn accept_filter(nav: &mut Navigation) -> bool {
+        nav.apply_sorted(crate::sorting::project_for_test(
+            nav.key(),
+            nav.visible().raw_entries.clone(),
+            &nav.filter,
+        ))
+    }
+
+    #[test]
+    fn filter_revisions_reject_old_query_data_navigation_and_completion_projections() {
+        let mut nav = ready();
+        nav.current.raw_entries = filter_rows();
+        let old = nav.key();
+        nav.set_filter("al".into());
+        assert!(!nav.apply_sorted(crate::sorting::project_for_test(old, filter_rows(), "")));
+        let old_query = nav.key();
+        nav.set_filter("be".into());
+        nav.set_filter("al".into()); // returning to text still has a newer revision
+        assert!(!nav.apply_sorted(crate::sorting::project_for_test(
+            old_query,
+            filter_rows(),
+            "al"
+        )));
+        let old_data = nav.key();
+        nav.apply(Response {
+            generation: old_data.generation,
+            update: Update::Snapshot {
+                entries: filter_rows(),
+                metadata_errors: 0,
+            },
+        });
+        assert!(!nav.apply_sorted(crate::sorting::project_for_test(
+            old_data,
+            filter_rows(),
+            "al"
+        )));
+        let old_location = nav.key();
+        nav.begin(PathBuf::from("elsewhere"), 2, Intent::New);
+        assert!(!nav.apply_sorted(crate::sorting::project_for_test(
+            old_location,
+            filter_rows(),
+            "al"
+        )));
+        let progressive = nav.key();
+        finish(&mut nav, 2, true);
+        assert!(!nav.apply_sorted(crate::sorting::project_for_test(
+            progressive,
+            filter_rows(),
+            "al"
+        )));
+        assert_eq!(nav.filter, "al");
+        assert!(accept_filter(&mut nav));
+        let previous = nav.key();
+        nav.begin(nav.current.location.clone(), 3, Intent::Refresh);
+        assert_eq!(nav.filter, "al");
+        assert!(!nav.apply_sorted(crate::sorting::project_for_test(
+            previous,
+            filter_rows(),
+            "al"
+        )));
+    }
+
+    #[test]
+    fn filter_prunes_hidden_identities_only_after_complete_fresh_projection_and_clear_does_not_restore_them()
+     {
+        let mut nav = ready();
+        let data = filter_rows();
+        nav.current.raw_entries = data.clone();
+        accept_filter(&mut nav);
+        nav.selection.select_all(&data);
+        nav.selection.click(&data, 1, true, false);
+        nav.selection.click(&data, 1, true, false); // all selected, beta active/anchor
+        let history = (
+            nav.current.location.clone(),
+            nav.back.clone(),
+            nav.forward.clone(),
+        );
+        nav.set_filter("al".into());
+        assert!(!nav.rows_selectable());
+        assert_eq!(nav.selection.paths.len(), 3);
+        accept_filter(&mut nav);
+        assert!(nav.rows_selectable());
+        assert_eq!(
+            nav.selection.paths,
+            [PathBuf::from("alpha"), PathBuf::from("alpine")]
+                .into_iter()
+                .collect()
+        );
+        assert!(nav.selection.active.is_none() && nav.selection.anchor.is_none());
+        nav.selection.select_all(&nav.current.entries);
+        assert_eq!(nav.selection.paths.len(), 2);
+        nav.set_filter(String::new());
+        accept_filter(&mut nav);
+        assert_eq!(nav.current.entries.len(), 3);
+        assert_eq!(nav.selection.paths.len(), 2); // beta does not resurrect
+        assert_eq!(
+            history,
+            (
+                nav.current.location.clone(),
+                nav.back.clone(),
+                nav.forward.clone()
+            )
+        );
+
+        nav.set_filter("al".into());
+        accept_filter(&mut nav);
+        let paths = nav.selection.paths.clone();
+        let active = nav.selection.active.clone();
+        nav.begin(nav.current.location.clone(), 2, Intent::Refresh);
+        accept_filter(&mut nav); // empty progressive snapshot is not absence
+        assert!(!nav.rows_selectable());
+        assert_eq!(nav.selection.paths, paths);
+        assert_eq!(nav.selection.active, active);
+        nav.apply(Response {
+            generation: 2,
+            update: Update::Snapshot {
+                entries: Arc::new(vec![data[0].clone()]),
+                metadata_errors: 0,
+            },
+        });
+        accept_filter(&mut nav);
+        assert!(!nav.rows_selectable());
+        assert_eq!(nav.selection.paths, paths);
+        finish(&mut nav, 2, false);
+        accept_filter(&mut nav);
+        assert!(!nav.rows_selectable());
+        assert_eq!(nav.selection.paths, paths);
+        nav.begin(nav.current.location.clone(), 3, Intent::Refresh);
+        nav.apply(Response {
+            generation: 3,
+            update: Update::Snapshot {
+                entries: data,
+                metadata_errors: 0,
+            },
+        });
+        finish(&mut nav, 3, true);
+        assert!(!nav.rows_selectable());
+        accept_filter(&mut nav);
+        assert!(nav.rows_selectable());
+        assert_eq!(nav.selection.paths, paths);
+        assert_eq!(nav.selection.active, active);
+        nav.set_filter("zz".into());
+        accept_filter(&mut nav);
+        assert!(nav.current.entries.is_empty());
+        assert!(nav.selection.paths.is_empty());
+        assert!(nav.selection.active.is_none() && nav.selection.anchor.is_none());
+        nav.set_filter(String::new());
+        accept_filter(&mut nav);
+        assert_eq!(nav.current.entries.len(), 3);
+        assert!(nav.selection.paths.is_empty());
     }
 
     #[test]

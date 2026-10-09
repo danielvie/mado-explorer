@@ -37,6 +37,7 @@ struct Explorer {
     requested_sort: Option<Key>,
     location_text: String,
     location_editor_focused: bool,
+    filter_text: String,
     row_scroll_offset: f32,
     row_viewport_height: f32,
     scroll_to_active: bool,
@@ -64,6 +65,7 @@ impl Explorer {
             requested_sort: None,
             location_text: location.to_string_lossy().into_owned(),
             location_editor_focused: false,
+            filter_text: String::new(),
             row_scroll_offset: 0.0,
             row_viewport_height: 0.0,
             scroll_to_active: false,
@@ -80,8 +82,11 @@ impl Explorer {
     fn request_sort(&mut self) {
         let key = self.navigation.key();
         if self.requested_sort != Some(key) {
-            self.sorter
-                .request(key, self.navigation.visible().raw_entries.clone());
+            self.sorter.request(
+                key,
+                self.navigation.visible().raw_entries.clone(),
+                self.navigation.filter.clone(),
+            );
             self.requested_sort = Some(key);
         }
     }
@@ -171,6 +176,34 @@ impl Explorer {
                     }
                 });
             });
+        ui.horizontal(|ui| {
+            ui.strong("Filter");
+            let width = (ui.available_width() - 65.0).max(100.0);
+            let input = ui.add_sized(
+                [width, 24.0],
+                egui::TextEdit::singleline(&mut self.filter_text)
+                    .hint_text("Fuzzy name filter")
+                    .id(egui::Id::new("filter")),
+            );
+            editing |= input.has_focus() || input.lost_focus();
+            if input.has_focus()
+                && ui.input_mut(|input| {
+                    consume_exact_key(input, egui::Modifiers::NONE, egui::Key::Escape)
+                })
+            {
+                input.surrender_focus();
+            }
+            let clear = ui
+                .add_enabled(!self.filter_text.is_empty(), egui::Button::new("Clear"))
+                .on_hover_text("Restore all entries without navigation")
+                .clicked();
+            if clear {
+                self.filter_text.clear();
+            }
+            if input.changed() || clear {
+                self.navigation.set_filter(self.filter_text.clone());
+            }
+        });
         if command.is_none() {
             command = match navigation_shortcut(ui.ctx(), editing) {
                 Some(Shortcut::Back) => self
@@ -221,10 +254,10 @@ impl Explorer {
             );
             ui.label("Previous location and history retained. Edit the path and Go to retry, or navigate elsewhere.");
         }
-        if self.navigation.sorted_key != Some(self.navigation.key()) {
+        if !self.navigation.projection_fresh() {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Sorting…");
+                ui.label("Updating filter/sort… previous rows are not interactive.");
             });
         }
         let directory = self.navigation.visible();
@@ -241,9 +274,7 @@ impl Explorer {
             Status::Ready if directory.raw_entries.is_empty() => {
                 ui.label("Empty folder");
             }
-            Status::Ready => {
-                ui.label(format!("{} entries", directory.raw_entries.len()));
-            }
+            Status::Ready => {}
             Status::Failed(failure) => {
                 ui.colored_label(egui::Color32::from_rgb(255, 180, 130), failure.kind.label());
                 ui.label(format!(
@@ -257,6 +288,25 @@ impl Explorer {
                 ui.label("Refresh to retry, use Up, or enter another folder path.");
             }
         }
+        if self.navigation.projection_fresh() {
+            ui.label(format!(
+                "{} / {} entries displayed{}",
+                directory.entries.len(),
+                directory.raw_entries.len(),
+                if matches!(directory.status, Status::Loading | Status::Failed(_)) {
+                    " (incomplete)"
+                } else {
+                    ""
+                }
+            ));
+            if matches!(directory.status, Status::Ready)
+                && !self.navigation.filter.is_empty()
+                && !directory.raw_entries.is_empty()
+                && directory.entries.is_empty()
+            {
+                ui.label("No names match this filter. Clear or edit the filter to show entries.");
+            }
+        }
         if directory.metadata_errors > 0 {
             ui.label(format!(
                 "Metadata unavailable for {} entries; hover a name for the error.",
@@ -267,15 +317,19 @@ impl Explorer {
 
     fn table(&mut self, ui: &mut egui::Ui, editing: bool) -> Option<PathBuf> {
         let mut destination = None;
-        let selectable = self.navigation.pending_location().is_none();
+        let selectable = self.navigation.rows_selectable();
         let table_focus = ui.add(
             egui::Label::new(format!(
                 "Entries — {} selected{}",
                 self.navigation.selection.paths.len(),
                 if selectable {
                     ""
-                } else {
+                } else if self.navigation.pending_location().is_some() {
                     " (selection paused until destination opens)"
+                } else if !self.navigation.projection_fresh() {
+                    " (selection paused while filter/sort updates)"
+                } else {
+                    " (selection paused: filtered listing is loading or incomplete; refresh to retry)"
                 }
             ))
             .sense(egui::Sense::click()),
@@ -310,6 +364,8 @@ impl Explorer {
                 }
             });
             ui.separator();
+            // A heading click may have invalidated the projection in this frame.
+            let selectable = self.navigation.rows_selectable();
             let entries = self.navigation.visible().entries.clone();
             let pitch = 24.0 + ui.spacing().item_spacing.y;
             let available_height = ui.available_height().max(24.0);
@@ -350,14 +406,14 @@ impl Explorer {
                     let active = selectable && self.navigation.selection.active.as_ref() == Some(&entry.path);
                     ui.push_id(&entry.path, |ui| {
                         let response = entry_row(ui, entry, columns, width, selectable, selected, active, editing);
-                        if response.clicked() {
+                        if selectable && response.clicked() {
                             let modifiers = ui.input(|input| input.modifiers);
                             if !modifiers.alt && !modifiers.mac_cmd {
                                 self.navigation.selection.click(&entries, index, modifiers.ctrl, modifiers.shift);
                                 table_focus.request_focus();
                             }
                         }
-                        if response.double_clicked() && entry.kind == EntryKind::Folder { destination = Some(entry.path.clone()); }
+                        if selectable && response.double_clicked() && entry.kind == EntryKind::Folder { destination = Some(entry.path.clone()); }
                         response.on_hover_ui(|ui| {
                             ui.label(entry.path.to_string_lossy());
                             if entry.kind == EntryKind::Folder { ui.label("Double-click or select the active row and press Enter to open folder."); }
@@ -490,7 +546,7 @@ fn selection_shortcuts(
 }
 
 fn active_folder(navigation: &Navigation) -> Option<PathBuf> {
-    if navigation.pending_location().is_some() {
+    if !navigation.rows_selectable() {
         return None;
     }
     let index = navigation
@@ -769,6 +825,7 @@ mod tests {
         let mut navigation = Navigation::new(PathBuf::from("root"));
         let rows = selection::tests::rows(&["root/a", "root/b"]);
         navigation.current.entries = rows.clone();
+        navigation.sorted_key = Some(navigation.key());
         assert_eq!(active_folder(&navigation), None);
         navigation.selection.click(&rows, 1, false, false);
         assert_eq!(active_folder(&navigation), Some(PathBuf::from("root/b")));
@@ -790,6 +847,7 @@ mod tests {
         });
         let mut navigation = Navigation::new(PathBuf::from("root"));
         navigation.current.entries = Arc::new(vec![file]);
+        navigation.sorted_key = Some(navigation.key());
         navigation
             .selection
             .click(&navigation.current.entries, 0, false, false);
@@ -879,6 +937,7 @@ mod tests {
                 requested_sort: None,
                 location_text: "root".into(),
                 location_editor_focused: false,
+                filter_text: String::new(),
                 row_scroll_offset: 0.0,
                 row_viewport_height: 0.0,
                 scroll_to_active: false,
@@ -886,6 +945,7 @@ mod tests {
             let names: Vec<_> = (0..200).map(|i| format!("row-{i}")).collect();
             app.navigation.current.entries =
                 selection::tests::rows(&names.iter().map(String::as_str).collect::<Vec<_>>());
+            app.navigation.sorted_key = Some(app.navigation.key());
             for key in [
                 None,
                 Some(egui::Key::End),
@@ -941,6 +1001,297 @@ mod tests {
                 .drop_without_applying_deltas();
             assert_eq!(app.navigation.selection.paths, selected);
         }
+    }
+
+    fn filter_app() -> Explorer {
+        let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+        let mut app = Explorer {
+            loader: DirectoryLoader::new(repaint.clone()).unwrap(),
+            navigation: Navigation::new(PathBuf::from("root")),
+            sorter: Sorter::new(repaint).unwrap(),
+            requested_sort: None,
+            location_text: "root".into(),
+            location_editor_focused: false,
+            filter_text: String::new(),
+            row_scroll_offset: 0.0,
+            row_viewport_height: 0.0,
+            scroll_to_active: false,
+        };
+        let mut rows = selection::tests::rows(&["alpha", "beta", "alpine"]);
+        for row in Arc::get_mut(&mut rows).unwrap() {
+            let row = Arc::get_mut(row).unwrap();
+            row.name = row.path.to_string_lossy().into_owned();
+        }
+        app.navigation.current.raw_entries = rows;
+        app.navigation.current.status = Status::Ready;
+        accept_app_filter(&mut app);
+        app
+    }
+
+    fn accept_app_filter(app: &mut Explorer) {
+        assert!(app.navigation.apply_sorted(sorting::project_for_test(
+            app.navigation.key(),
+            app.navigation.visible().raw_entries.clone(),
+            &app.navigation.filter
+        )));
+    }
+
+    #[test]
+    fn filter_toolbar_owns_editing_keys_and_submission_frame() {
+        for (key, modifiers) in [
+            (
+                egui::Key::A,
+                egui::Modifiers::CTRL | egui::Modifiers::COMMAND,
+            ),
+            (egui::Key::ArrowDown, egui::Modifiers::NONE),
+            (egui::Key::ArrowLeft, egui::Modifiers::NONE),
+            (egui::Key::Enter, egui::Modifiers::NONE),
+            (egui::Key::ArrowUp, egui::Modifiers::ALT),
+            (egui::Key::F5, egui::Modifiers::NONE),
+            (egui::Key::Escape, egui::Modifiers::NONE),
+        ] {
+            let context = egui::Context::default();
+            let mut app = filter_app();
+            app.filter_text = "al".into();
+            app.navigation.set_filter("al".into());
+            accept_app_filter(&mut app);
+            app.navigation
+                .selection
+                .click(&app.navigation.current.entries, 0, false, false);
+            let selected = app.navigation.selection.paths.clone();
+            let key_before = app.navigation.key();
+            context
+                .run_ui(egui::RawInput::default(), |ui| {
+                    app.toolbar(ui);
+                    ui.memory_mut(|memory| memory.request_focus(egui::Id::new("filter")));
+                })
+                .drop_without_applying_deltas();
+            context
+                .run_ui(
+                    egui::RawInput {
+                        events: vec![key_event(key, modifiers)],
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let editing = app.toolbar(ui);
+                        assert!(editing, "{key:?} must own its submission/exit frame");
+                        assert_eq!(app.table(ui, editing), None);
+                    },
+                )
+                .drop_without_applying_deltas();
+            assert_eq!(
+                app.navigation.key(),
+                key_before,
+                "editing must not refresh/navigate"
+            );
+            assert_eq!(app.navigation.selection.paths, selected);
+            if key == egui::Key::A {
+                context
+                    .run_ui(
+                        egui::RawInput {
+                            events: vec![egui::Event::Text("be".into())],
+                            ..Default::default()
+                        },
+                        |ui| {
+                            assert!(app.toolbar(ui));
+                        },
+                    )
+                    .drop_without_applying_deltas();
+                assert_eq!(
+                    app.filter_text, "be",
+                    "Ctrl+A selected input text, not rows"
+                );
+                assert_eq!(app.navigation.filter, "be");
+                assert!(!app.navigation.rows_selectable());
+            }
+        }
+    }
+
+    #[test]
+    fn filter_table_commands_use_only_fresh_complete_visible_rows() {
+        let context = egui::Context::default();
+        let mut app = filter_app();
+        app.navigation
+            .selection
+            .click(&app.navigation.current.entries, 2, false, false); // beta
+        let selected = app.navigation.selection.paths.clone();
+        app.navigation.set_filter("al".into());
+        let run = |app: &mut Explorer, keys: Vec<egui::Event>| {
+            let mut destination = None;
+            context
+                .run_ui(
+                    egui::RawInput {
+                        events: keys,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        destination = app.table(ui, false);
+                    },
+                )
+                .drop_without_applying_deltas();
+            destination
+        };
+        assert_eq!(active_folder(&app.navigation), None);
+        assert_eq!(
+            run(
+                &mut app,
+                vec![
+                    key_event(egui::Key::A, egui::Modifiers::CTRL),
+                    key_event(egui::Key::Enter, egui::Modifiers::NONE)
+                ]
+            ),
+            None
+        );
+        assert_eq!(app.navigation.selection.paths, selected);
+        accept_app_filter(&mut app);
+        assert!(app.navigation.selection.paths.is_empty());
+        run(
+            &mut app,
+            vec![key_event(egui::Key::A, egui::Modifiers::CTRL)],
+        );
+        assert_eq!(
+            app.navigation.selection.paths,
+            [PathBuf::from("alpha"), PathBuf::from("alpine")]
+                .into_iter()
+                .collect()
+        );
+        assert_eq!(
+            run(
+                &mut app,
+                vec![key_event(egui::Key::Enter, egui::Modifiers::NONE)]
+            ),
+            Some(PathBuf::from("alpha"))
+        );
+        let selected = app.navigation.selection.paths.clone();
+        app.navigation.current.status = Status::Loading;
+        assert_eq!(active_folder(&app.navigation), None);
+        assert_eq!(
+            run(
+                &mut app,
+                vec![
+                    key_event(egui::Key::End, egui::Modifiers::NONE),
+                    key_event(egui::Key::A, egui::Modifiers::CTRL),
+                    key_event(egui::Key::Enter, egui::Modifiers::NONE)
+                ]
+            ),
+            None
+        );
+        assert_eq!(app.navigation.selection.paths, selected);
+        app.navigation.current.status = Status::Ready;
+        app.navigation.set_filter(String::new());
+        accept_app_filter(&mut app);
+        assert_eq!(app.navigation.selection.paths, selected);
+        run(
+            &mut app,
+            vec![key_event(egui::Key::A, egui::Modifiers::CTRL)],
+        );
+        assert_eq!(app.navigation.selection.paths.len(), 3);
+    }
+
+    #[test]
+    fn filter_clear_control_restores_rows_without_navigation_at_narrow_viewport() {
+        let context = egui::Context::default();
+        let mut app = filter_app();
+        app.filter_text = "al".into();
+        app.navigation.set_filter("al".into());
+        accept_app_filter(&mut app);
+        app.navigation
+            .selection
+            .select_all(&app.navigation.current.entries);
+        let selected = app.navigation.selection.paths.clone();
+        let location = app.navigation.current.location.clone();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(480.0, 280.0));
+        let output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| {
+                let editing = app.toolbar(ui);
+                app.status(ui);
+                app.table(ui, editing);
+            },
+        );
+        let clear = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "Clear" => {
+                    Some(text.pos + text.galley.size() / 2.0)
+                }
+                _ => None,
+            })
+            .expect("clear control must be visible");
+        assert!(screen.contains(clear));
+        output.drop_without_applying_deltas();
+        for pressed in [true, false] {
+            context
+                .run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        events: vec![
+                            egui::Event::PointerMoved(clear),
+                            egui::Event::PointerButton {
+                                pos: clear,
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                modifiers: egui::Modifiers::NONE,
+                            },
+                        ],
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let editing = app.toolbar(ui);
+                        app.status(ui);
+                        app.table(ui, editing);
+                    },
+                )
+                .drop_without_applying_deltas();
+        }
+        assert!(app.filter_text.is_empty() && app.navigation.filter.is_empty());
+        assert!(!app.navigation.rows_selectable());
+        accept_app_filter(&mut app);
+        assert_eq!(app.navigation.current.entries.len(), 3);
+        assert_eq!(app.navigation.selection.paths, selected);
+        assert_eq!(app.navigation.current.location, location);
+        assert!(app.navigation.back.is_empty() && app.navigation.forward.is_empty());
+    }
+
+    #[test]
+    fn filter_status_counts_and_no_match_are_never_from_an_old_projection() {
+        let context = egui::Context::default();
+        let mut app = filter_app();
+        let status_text = |app: &Explorer| {
+            let output = context.run_ui(egui::RawInput::default(), |ui| app.status(ui));
+            let text = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) => Some(text.galley.job.text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            output.drop_without_applying_deltas();
+            text
+        };
+        assert!(status_text(&app).contains("3 / 3 entries displayed"));
+        app.navigation.set_filter("zz".into());
+        let pending = status_text(&app);
+        assert!(
+            pending.contains("Updating filter/sort"),
+            "pending text: {pending:?}"
+        );
+        assert!(!pending.contains("No names match") && !pending.contains("entries displayed"));
+        accept_app_filter(&mut app);
+        let fresh = status_text(&app);
+        assert!(fresh.contains("0 / 3 entries displayed") && fresh.contains("No names match"));
+        app.navigation.current.status = Status::Loading;
+        assert!(!status_text(&app).contains("No names match"));
+        app.navigation.current.status = Status::Ready;
+        app.navigation.set_filter(String::new());
+        accept_app_filter(&mut app);
+        assert!(status_text(&app).contains("3 / 3 entries displayed"));
     }
 
     #[test]
