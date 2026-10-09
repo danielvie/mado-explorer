@@ -29,9 +29,9 @@ The standalone library depends only on egui =0.36.2, matching the checkout's roo
 - Explicit zoom buttons use 0.8/1.25 factors. Ctrl/command-wheel and native Zoom events zoom around the pointer. Primary-button dragging pans only the captured raster. The painter intersects raster and parent clip rectangles.
 - Manual zoom is bounded to 1%-6400%, extended to include an unusual Fit scale. Pan cannot expose empty space along an overflowing axis; non-overflowing axes remain centered.
 - Raw unsmoothed pointer zoom events are applied in order at their preceding event-time pointer position, transformed from global to layer-local points. Targeting checks this enabled raster's clipped interaction rectangle and top-most layer at that position, not final hover or final drag capture. Moving from a text control into a raster does not retarget an earlier zoom; moving out does not discard an earlier raster zoom. Outside/text/sibling and invalid events stay unconsumed by this instance. Neighboring instances do not share mode/pan. No explorer shortcuts or text-edit keys are intercepted.
-- Drag-start uses egui's press-relative total displacement, then incremental frame displacement. Both response delta APIs account for layer scaling. Movement before the primary press does not pan; movement after the press in the same input batch does.
+- Captured primary-pan motion and pointer zoom replay together in raw event order. Each motion uses the current drawn size and layer-local displacement, then clamps before the next event. The primary press establishes the baseline; release ends pan before subsequent motion. There is no additional whole-frame pan. Egui grants capture; the event-time press must also be inside this raster's clipped interaction rectangle/top layer.
 - Same-key texture replacement and display-density changes preserve manual scale and the image-relative center, subject to bounds. Fit remains responsive to resize. New keys reset the view.
-- Zero, negative, nonfinite and unrepresentable dimensions, density and zoom input are refused. State contains only document key, mode, pan and previous pointer position; no workers or cache.
+- Zero, negative, nonfinite and unrepresentable dimensions, density and zoom input are refused. State contains document key, mode, pan, previous pointer position and one admitted primary-capture widget ID; no workers, event queue or cache. Stationary batches use the context's known current pointer, including fresh instances and return after hiding. Batches containing PointerMoved, PointerButton or PointerGone still replay from the previous instance pointer and never backfill final position.
 
 ## S013-R01 correction and validation
 
@@ -67,6 +67,43 @@ cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git commit -m "Fix rast
 ```
 
 Diff checks pass. The terminal SHA is reported separately. Native/GPU/Narrator checks remain pending; no root suite, Clippy, source I/O, decoder, cache, clipboard or native probe ran. F07.2/F08.3 remain partial component controls only. Event targeting uses event-time pointer positions with current-frame raster/layer geometry, not an event-time layout replay. Pan remains egui primary-drag response handling, not raw mouse-motion or a kinetic gesture controller. Wait for this lane's fresh review, parent integration/validation, then a new commission against updated main.
+
+## S013-R04 correction and validation
+
+- Frozen fix base: 02d88a8244a1a5c7cd44591b74e34b11a162640a, lane/raster-viewport. The component-only commit containing this section is the next candidate, not an approved integration. Its exact SHA is returned separately and resolves with `git rev-parse HEAD` in this checkout.
+- Owned paths: src/lib.rs, tests/support/batched_input.rs, new tests/support/ordered_pan.rs and HANDOFF.md. All thirteen existing behavior/regression functions and assertions remain unchanged. Existing test support gains document keys and a geometry comparison helper. No dependency, manifest, lockfile, Taskfile, src/tests.rs, root or sibling edits.
+- Parent-only PROGRESS.md remains unedited and unstaged. Its blob hash is fd9c683c2fc1bf42307928580f08989a1c295364, matching the initial dirty diff's new blob.
+- Installed egui 0.36.2 APIs inspected: Context dragged_id/drag_started_id/drag_stopped_id/interaction_snapshot, interaction.rs capture calculation, Response dragged/drag_stopped_by and layer-scaled deltas, PointerState position/button event processing and primary_down, Event definitions, Ui clipped interaction rectangle, Context layer transforms/layer_id_at. Egui does not grant a drag for press-and-release wholly within one batch. The component does not synthesize capture for that uncaptured gesture.
+- Pan now replays interleaved with zoom. One retained admitted primary-capture ID prevents a rejected event-time press from becoming a pan in a later held frame merely because egui's batch hit-test ends over the raster. The ID must still be owned or have a primary release reported by egui. Different document/widget IDs, disabled/invalid geometry and lost capture cannot inherit it. Moves before press and after release remain unconsumed and do not pan. Each movement transforms displacement into layer-local points and clamps at its event-time scale.
+- Stationary batches use the context's current known pointer. Any PointerMoved, PointerButton or PointerGone keeps the ordered replay's previous-pointer starting rule. Events are taken/restored as before; only targeted valid zoom events are consumed. No public input is discarded or augmented.
+
+Red check before source correction:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport/components/raster-viewport && cargo test --offline --locked --target-dir target --lib ordered_pan -- --nocapture
+```
+
+The first invocation failed to compile the new test because an Event was moved between loop iterations. Cloning that test value fixed the harness without changing assertions. The next invocation exited 101: four failed, one passed, thirteen filtered out. Held-drag batched image min x was -650 instead of sequential -630. The captured release/ordering test gave -220 instead of -149.99998. Fresh native Zoom and Ctrl-wheel each stayed at 0.375 Fit instead of 0.75. These are failure evidence, not passing checks.
+
+The first source correction passed those five new checks and all thirteen old checks. A stronger same-batch elsewhere-press/next-frame-motion guard then exposed a distinct retargeting failure, image center 170 instead of 150. Retaining the single admitted capture ID fixed it on the first focused correction; all five then passed. A sixth check confirms no final-position backfill across ordered PointerMoved/Button/Gone and no stale fallback after PointerGone. No assertions were removed or weakened.
+
+Final coherent checks:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport/components/raster-viewport && cargo fmt && cargo fmt --check && cargo check --offline --locked --target-dir target --all-targets && cargo test --offline --locked --target-dir target --lib ordered_pan -- --nocapture && cargo test --offline --locked --target-dir target && task test
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git diff --check
+```
+
+Passed formatting and locked offline incremental all-target compilation. Six focused tests pass; full component suite passes nineteen tests, zero failed/ignored, plus zero doc-tests. Existing task test passes the same nineteen. Added checks cover held-drag batched/sequential equivalence in both zoom/move orders for native Zoom/Ctrl-wheel, translated/scaled layers, new-press and captured-release boundaries, per-move clamping, no double-count on idle continuation, document reset, other-widget/uncaptured motion, fresh stationary zoom/wheel, stale hidden-instance context pointer in both directions, and outside/text/sibling isolation. All thirteen previous behaviors pass unchanged.
+
+Commit inspection and publication to this lane only:
+
+```text
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git diff --check && git add -- components/raster-viewport/src/lib.rs components/raster-viewport/tests/support/batched_input.rs components/raster-viewport/tests/support/ordered_pan.rs components/raster-viewport/HANDOFF.md && git diff --cached --check && git diff --cached --stat && git diff --cached --name-only && git diff --cached -- components/raster-viewport
+cd C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport && git commit -m "Preserve captured raster pan and zoom event chronology" && git rev-parse HEAD && git status --short && git hash-object PROGRESS.md && git diff --check
+```
+
+F07.2/F08.3 remain partial component controls only. Event-time input uses current-frame layout/layer geometry, not layout history. Fresh instances with ordered position-changing batches cannot infer a missing pre-batch pointer and do not guess from final position. Native/GPU/Narrator/actual monitor checks remain pending. No native/data probe, source I/O, decoder, cache, clipboard, root suite, dependency change, production enablement, merge/rebase/push or nested delegation occurred. This section supersedes the historical R01 whole-frame response-delta pan mechanism. Await fresh exact-head review and parent approval/serial integration/validation before any next feature.
 
 ## Original P07 validation commands and outcomes
 

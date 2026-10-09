@@ -1,11 +1,15 @@
 use super::*;
 use egui::{ColorImage, Context, Modifiers, RawInput, TextureOptions, TouchPhase, vec2};
 
+#[path = "ordered_pan.rs"]
+mod ordered_pan;
+
 struct Harness {
     ctx: Context,
     texture: TextureHandle,
     views: [RasterViewport; 2],
     transform: egui::emath::TSTransform,
+    keys: [u64; 2],
 }
 
 struct Frame {
@@ -27,6 +31,7 @@ impl Harness {
             texture,
             views: Default::default(),
             transform,
+            keys: [1, 1],
         }
     }
 
@@ -49,7 +54,7 @@ impl Harness {
                             *result = self.views[i].show(
                                 ui,
                                 i,
-                                1,
+                                self.keys[i],
                                 &self.texture,
                                 vec2(800.0, 400.0),
                                 vec2(300.0, 200.0),
@@ -98,6 +103,12 @@ fn near(a: f32, b: f32) {
 fn same_point(a: Pos2, b: Pos2) {
     near(a.x, b.x);
     near(a.y, b.y);
+}
+
+fn compare_view(a: &ViewportOutput, b: &ViewportOutput) {
+    near(a.physical_scale, b.physical_scale);
+    same_point(a.image_rect.min, b.image_rect.min);
+    same_point(a.image_rect.max, b.image_rect.max);
 }
 
 fn zoom_events() -> [Event; 2] {

@@ -20,6 +20,8 @@ pub struct RasterViewport {
     // Fraction of drawn image size, preserving the center through sharper replacements.
     pan: Vec2,
     previous_pointer: Option<Pos2>,
+    // Retain only a primary capture admitted at its event-time press position.
+    primary_drag: Option<egui::Id>,
 }
 
 pub struct ViewportOutput {
@@ -55,6 +57,7 @@ impl RasterViewport {
     ) -> Option<ViewportOutput> {
         let density = ui.ctx().pixels_per_point();
         let previous_pointer = self.previous_pointer;
+        let previous_drag = self.primary_drag.take();
         self.previous_pointer = ui.input(|input| input.pointer.latest_pos());
         if !positive(image_pixels)
             || !positive(viewport_size)
@@ -111,15 +114,56 @@ impl RasterViewport {
                 }
                 // Replay unsmoothed events at their pointer position, not final hover.
                 // Take the existing event vector to query layer ownership without nested
-                // context locks; no copy or additional retained input state is needed.
+                // context locks; no event copy or retained event queue is needed.
                 if response.enabled() {
                     let from_global = ui.ctx().layer_transform_from_global(response.layer_id);
                     let mut events = ui.input_mut(|input| std::mem::take(&mut input.events));
-                    let mut pointer = previous_pointer;
+                    // Only a stationary batch may use the context's final position.
+                    // With ordered motion, it would incorrectly retarget earlier zoom.
+                    let mut pointer = if events.iter().any(|event| {
+                        matches!(
+                            event,
+                            Event::PointerMoved(_)
+                                | Event::PointerButton { .. }
+                                | Event::PointerGone
+                        )
+                    }) {
+                        previous_pointer
+                    } else {
+                        self.previous_pointer
+                    };
+                    let owns_drag = ui.ctx().dragged_id() == Some(response.id);
+                    let mut dragging = previous_drag == Some(response.id)
+                        && (owns_drag || response.drag_stopped_by(PointerButton::Primary));
                     events.retain(|event| {
                         match event {
                             Event::PointerMoved(pos) | Event::PointerButton { pos, .. } => {
+                                if dragging && let Some(previous) = pointer {
+                                    let delta = *pos - previous;
+                                    let delta = from_global
+                                        .map_or(delta, |transform| delta * transform.scaling);
+                                    let drawn = image_pixels * (self.scale(fit) / density);
+                                    if positive(drawn) && delta.is_finite() {
+                                        self.pan += delta / drawn;
+                                        self.clamp_pan(drawn, rect.size());
+                                    }
+                                }
                                 pointer = Some(*pos);
+                                if let Event::PointerButton {
+                                    button: PointerButton::Primary,
+                                    pressed,
+                                    ..
+                                } = event
+                                {
+                                    let anchor =
+                                        from_global.map_or(*pos, |transform| transform * *pos);
+                                    // Egui grants capture; the event-time press must also
+                                    // belong to this raster, not merely end over it.
+                                    dragging = *pressed
+                                        && owns_drag
+                                        && response.interact_rect.contains(anchor)
+                                        && ui.ctx().layer_id_at(*pos) == Some(response.layer_id);
+                                }
                                 return true;
                             }
                             Event::PointerGone => {
@@ -163,21 +207,10 @@ impl RasterViewport {
                         }
                         false
                     });
+                    self.primary_drag =
+                        (dragging && owns_drag && ui.input(|input| input.pointer.primary_down()))
+                            .then_some(response.id);
                     ui.input_mut(|input| input.events = events);
-                }
-                if response.dragged_by(PointerButton::Primary) {
-                    let drawn = image_pixels * (self.scale(fit) / density);
-                    // Frame delta includes travel before a press. The start frame
-                    // must instead count only displacement from the press origin.
-                    // Both response deltas already account for layer scaling.
-                    let delta = if response.drag_started_by(PointerButton::Primary) {
-                        response.total_drag_delta().unwrap_or(Vec2::ZERO)
-                    } else {
-                        response.drag_delta()
-                    };
-                    if positive(drawn) && delta.is_finite() {
-                        self.pan += delta / drawn;
-                    }
                 }
                 let scale = self.scale(fit);
                 let drawn = image_pixels * (scale / density);
