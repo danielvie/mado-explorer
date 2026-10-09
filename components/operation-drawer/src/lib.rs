@@ -223,10 +223,12 @@ pub struct Record {
     cancel_sent: bool,
     details: bool,
     cancellation_requested: bool,
+    slot: usize,
+    inputs: [ControlInput; 3],
 }
 
 impl Record {
-    fn queued(request: Request) -> Self {
+    fn queued(request: Request, slot: usize) -> Self {
         Self {
             request,
             state: State::Queued,
@@ -236,6 +238,8 @@ impl Record {
             cancel_sent: false,
             details: false,
             cancellation_requested: false,
+            slot,
+            inputs: Default::default(),
         }
     }
     pub fn request(&self) -> &Request {
@@ -263,6 +267,7 @@ pub struct Operations {
     history: VecDeque<Record>,
     notice: Option<Refusal>,
     open: bool,
+    toggle_input: ControlInput,
 }
 
 impl Operations {
@@ -275,6 +280,7 @@ impl Operations {
             history: VecDeque::new(),
             notice: None,
             open: true,
+            toggle_input: ControlInput::default(),
         }
     }
     pub fn active(&self) -> Option<&Record> {
@@ -317,8 +323,20 @@ impl Operations {
         if self.history.len() + self.pending() >= MAX_HISTORY {
             return self.refuse(Refusal::HistoryCapacity);
         }
+        // ponytail: at most 32 records; scan them instead of maintaining a second
+        // ownership table. Only explicit terminal acknowledgement frees a slot.
+        let slot = (0..MAX_HISTORY)
+            .find(|slot| {
+                !self
+                    .active
+                    .iter()
+                    .chain(&self.queued)
+                    .chain(&self.history)
+                    .any(|record| record.slot == *slot)
+            })
+            .unwrap();
         self.high_water = Some(request.id.sequence);
-        self.queued.push_back(Record::queued(request.clone()));
+        self.queued.push_back(Record::queued(request.clone(), slot));
         Ok(())
     }
     /// Poll outside presentation. Exactly one Start, then optionally one Cancel,
@@ -419,8 +437,15 @@ impl Operations {
     /// Nonmodal presenter. No tab IDs, per-operation Area/Modal/ScrollArea state,
     /// file I/O or backend polling. Returned responses support caller focus routing.
     pub fn show(&mut self, ui: &mut egui::Ui) -> DrawerResponse {
-        ui.push_id(("operation-drawer", self.window), |ui| {
-            let toggle = button(ui, "Operations", Some(self.open));
+        let namespace = egui::Id::new(("operation-drawer", self.window));
+        ui.scope_builder(egui::UiBuilder::new().id(namespace), |ui| {
+            let toggle = owned_button(
+                ui,
+                namespace.with("toggle"),
+                &mut self.toggle_input,
+                "Operations",
+                Some(self.open),
+            );
             if toggle.clicked() {
                 self.open = !self.open;
             }
@@ -448,6 +473,7 @@ impl Operations {
                                 ui,
                                 record,
                                 hover_id,
+                                namespace,
                                 &mut controls,
                                 &mut cancel,
                                 &mut acknowledge,
@@ -464,6 +490,7 @@ impl Operations {
                                 ui,
                                 record,
                                 hover_id,
+                                namespace,
                                 &mut controls,
                                 &mut cancel,
                                 &mut acknowledge,
@@ -478,6 +505,7 @@ impl Operations {
                                 ui,
                                 record,
                                 hover_id,
+                                namespace,
                                 &mut controls,
                                 &mut cancel,
                                 &mut acknowledge,
@@ -517,14 +545,16 @@ fn draw_record(
     ui: &mut egui::Ui,
     record: &mut Record,
     hover_id: egui::Id,
+    namespace: egui::Id,
     controls: &mut Vec<ControlResponse>,
     cancel: &mut Option<OperationId>,
     acknowledge: &mut Option<OperationId>,
 ) {
     let id = record.request.id;
-    // Request-specific buttons prevent a late click/focus from targeting a new job.
-    // No operation-specific persistent egui data is inserted by these child IDs.
-    ui.push_id(id.sequence, |ui| {
+    // Slots follow records through queued/active/history transitions. Operation
+    // identity remains command data, never a persistent egui focus-cache key.
+    let builder = egui::UiBuilder::new().id(namespace.with(("record", record.slot)));
+    ui.scope_builder(builder, |ui| {
         ui.separator();
         ui.label(format!("{} #{}", record.request.kind.label(), id.sequence));
         ui.label(match record.state {
@@ -597,26 +627,26 @@ fn draw_record(
             ),
             (Action::Acknowledge, "Acknowledge and dismiss report"),
         ] {
-            if action == Action::Cancel && !matches!(record.state, State::Queued | State::Active) {
-                continue;
-            }
-            if action == Action::Acknowledge
-                && !matches!(
-                    record.state,
-                    State::Stopped(_) | State::CancelledBeforeStart
-                )
+            let seed = namespace.with(("control", record.slot, action as u8));
+            let input = &mut record.inputs[action as usize];
+            if (action == Action::Cancel && !matches!(record.state, State::Queued | State::Active))
+                || (action == Action::Acknowledge
+                    && !matches!(
+                        record.state,
+                        State::Stopped(_) | State::CancelledBeforeStart
+                    ))
             {
+                // Cancel and acknowledgement never share a focus ID or gesture.
+                input.prepare(ui, seed, false);
                 continue;
             }
-            let response = ui
-                .push_id(action as u8, |ui| {
-                    button(
-                        ui,
-                        label,
-                        (action == Action::Details).then_some(record.details),
-                    )
-                })
-                .inner;
+            let response = owned_button(
+                ui,
+                seed,
+                input,
+                label,
+                (action == Action::Details).then_some(record.details),
+            );
             if response.clicked() {
                 match action {
                     Action::Details => record.details = !record.details,
@@ -640,6 +670,133 @@ fn draw_record(
             }
         }
     });
+}
+
+/// Local ownership epoch for a finite control ID. Never consumes browsing input.
+#[derive(Debug, Default)]
+struct ControlInput {
+    frame: Option<u64>,
+    visible: bool,
+    opening_frame: Option<u64>,
+    pointer_blocked: bool,
+    keys_blocked: [bool; 2],
+    allow_pointer: bool,
+    allow_keyboard: bool,
+    activated_frame: Option<u64>,
+}
+
+impl ControlInput {
+    fn prepare(&mut self, ui: &egui::Ui, seed: egui::Id, visible: bool) {
+        let frame = ui.ctx().cumulative_frame_nr();
+        let new_owner = self.frame.is_none();
+        let opening = visible && (!self.visible || self.frame.is_none_or(|last| last + 1 < frame));
+        if opening {
+            self.opening_frame = Some(frame);
+            // Also fence a role that appears in a later layout pass this frame.
+            self.pointer_blocked = ui.input(|i| i.pointer.primary_down());
+        }
+        if new_owner || opening || !visible {
+            // Surrender only this control's inherited focus, not browsing/other windows.
+            ui.ctx()
+                .memory_mut(|memory| memory.surrender_focus(button_id(seed)));
+        }
+        if self.frame != Some(frame) {
+            ui.input(|i| {
+                self.allow_pointer = !opening && !self.pointer_blocked;
+                if !opening
+                    && (!i.pointer.primary_down()
+                        || i.events.iter().any(|event| {
+                            matches!(
+                                event,
+                                egui::Event::PointerButton {
+                                    button: egui::PointerButton::Primary,
+                                    pressed: false,
+                                    ..
+                                }
+                            )
+                        }))
+                {
+                    self.pointer_blocked = false;
+                }
+                let mut blocked_press = false;
+                for (index, key) in [egui::Key::Enter, egui::Key::Space].into_iter().enumerate() {
+                    // Ownership, not visibility, is the keyboard epoch. Hidden roles
+                    // sample it too; opening the drawer does not turn its toggle key
+                    // into an old operation's held key.
+                    if new_owner {
+                        self.keys_blocked[index] = i.key_down(key);
+                    }
+                    if !new_owner {
+                        for event in &i.events {
+                            if let egui::Event::Key {
+                                key: event_key,
+                                pressed,
+                                ..
+                            } = event
+                                && *event_key == key
+                            {
+                                if *pressed {
+                                    blocked_press |= self.keys_blocked[index];
+                                } else {
+                                    self.keys_blocked[index] = false;
+                                }
+                            }
+                        }
+                        if !i.key_down(key) {
+                            self.keys_blocked[index] = false;
+                        }
+                    }
+                }
+                self.allow_keyboard = !opening && !blocked_press;
+            });
+            self.frame = Some(frame);
+        }
+        self.visible = visible;
+    }
+}
+
+// UiBuilder::id seeds next_auto_id with seed.value() + 1; Button's AtomLayout
+// uses that first auto ID. Explicit child UIs isolate it from labels/order/roles.
+fn button_id(seed: egui::Id) -> egui::Id {
+    egui::Id::new(seed.value().wrapping_add(1))
+}
+
+fn owned_button(
+    ui: &mut egui::Ui,
+    seed: egui::Id,
+    input: &mut ControlInput,
+    label: &str,
+    selected: Option<bool>,
+) -> egui::Response {
+    let frame = ui.ctx().cumulative_frame_nr();
+    input.prepare(ui, seed, true);
+    let mut response = ui
+        .scope_builder(egui::UiBuilder::new().id(seed), |ui| {
+            debug_assert_eq!(ui.next_auto_id(), button_id(seed));
+            button(ui, label, selected)
+        })
+        .inner;
+    debug_assert_eq!(response.id, button_id(seed));
+    use egui::response::Flags;
+    if !input.allow_pointer
+        || input.opening_frame == Some(frame)
+        || input.activated_frame == Some(frame)
+        // Hit-testing uses the previous pass. A moved row must not accept a
+        // release on its old rectangle, even though it still owns this slot.
+        || !response.interact_pointer_pos().is_some_and(|pos| response.interact_rect.contains(pos))
+    {
+        response.flags.remove(Flags::CLICKED | Flags::LONG_TOUCHED);
+    }
+    if !input.allow_keyboard
+        || input.opening_frame == Some(frame)
+        || input.activated_frame == Some(frame)
+    {
+        response.flags.remove(Flags::FAKE_PRIMARY_CLICKED);
+    }
+    if response.clicked() {
+        input.activated_frame = Some(frame);
+    }
+    response
 }
 
 fn button(ui: &mut egui::Ui, label: &str, selected: Option<bool>) -> egui::Response {

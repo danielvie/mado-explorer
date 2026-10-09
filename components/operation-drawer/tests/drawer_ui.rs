@@ -753,6 +753,726 @@ fn p09_all_kinds_and_conflict_waiting_leave_browsing_input_usable() {
     assert!(operations.next_command().is_none());
 }
 
+#[test]
+fn r05_focusable_response_ids_are_finite_without_cardinal_navigation() {
+    use std::collections::HashSet;
+    let ctx = Context::default();
+    let mut seen = HashSet::new();
+    for generation in 0..8 {
+        let mut operations = Operations::new(7);
+        for sequence in 1..=48 {
+            operations.enqueue(&request(sequence)).unwrap();
+            operations.next_command();
+            let (_, response) = frame(&ctx, &mut operations, vec![]);
+            seen.insert(response.toggle.id);
+            seen.extend(response.controls.iter().map(|c| c.response.id));
+            for control in &response.controls {
+                let registered = ctx.read_response(control.response.id).unwrap();
+                assert!(registered.sense.is_focusable());
+                assert!(registered.enabled());
+                assert_eq!(registered.id, control.response.id);
+            }
+            if (sequence + generation) % 2 == 0 {
+                click(
+                    &ctx,
+                    &mut operations,
+                    control(&response, sequence, Action::Details),
+                );
+            } else {
+                control(&response, sequence, Action::Details).request_focus();
+                frame(&ctx, &mut operations, vec![key(Key::Enter)]);
+            }
+            operations
+                .report(&stopped(sequence, 1, Outcome::Completed))
+                .unwrap();
+            let (_, response) = frame(&ctx, &mut operations, vec![]);
+            seen.extend(response.controls.iter().map(|c| c.response.id));
+            if sequence % 2 == 0 {
+                click(
+                    &ctx,
+                    &mut operations,
+                    control(&response, sequence, Action::Acknowledge),
+                );
+            } else {
+                control(&response, sequence, Action::Acknowledge).request_focus();
+                frame(&ctx, &mut operations, vec![key(Key::Enter)]);
+            }
+            assert!(operations.history().is_empty());
+            frame(
+                &ctx,
+                &mut operations,
+                vec![Event::PointerGone, release_key(Key::Enter)],
+            );
+        }
+    }
+    assert!(
+        seen.len() <= 1 + MAX_HISTORY * 3,
+        "{} registered focus IDs",
+        seen.len()
+    );
+    assert_eq!(seen.len(), 4); // One reused slot's three roles and the toggle.
+}
+
+#[test]
+fn r05_slots_follow_records_and_reuse_only_explicitly_acknowledged_slot() {
+    use std::collections::HashSet;
+    let ctx = Context::default();
+    let mut operations = Operations::new(7);
+    let mut details_ids = vec![];
+    let mut registered_ids = HashSet::new();
+    for sequence in 1..=32 {
+        operations.enqueue(&request(sequence)).unwrap();
+        operations.next_command();
+        let (_, response) = frame(&ctx, &mut operations, vec![]);
+        registered_ids.insert(response.toggle.id);
+        registered_ids.extend(response.controls.iter().map(|c| c.response.id));
+        details_ids.push(control(&response, sequence, Action::Details).id);
+        operations
+            .report(&stopped(sequence, 1, Outcome::Failed))
+            .unwrap();
+        let (_, response) = frame(&ctx, &mut operations, vec![]);
+        registered_ids.extend(response.controls.iter().map(|c| c.response.id));
+        assert_eq!(
+            control(&response, sequence, Action::Details).id,
+            details_ids[sequence as usize - 1]
+        );
+    }
+    assert_eq!(
+        details_ids.iter().collect::<HashSet<_>>().len(),
+        MAX_HISTORY
+    );
+    assert_eq!(registered_ids.len(), 1 + MAX_HISTORY * 3);
+    assert_eq!(
+        operations.enqueue(&request(33)),
+        Err(Refusal::HistoryCapacity)
+    );
+    assert!(operations.acknowledge(id(12)));
+    operations.enqueue(&request(33)).unwrap();
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    assert_eq!(control(&response, 33, Action::Details).id, details_ids[11]);
+    for sequence in (1..=32).filter(|s| *s != 12) {
+        assert_eq!(
+            control(&response, sequence, Action::Details).id,
+            details_ids[sequence as usize - 1]
+        );
+    }
+    assert_eq!(operations.history().len(), 31);
+    assert_eq!(operations.queued().len(), 1);
+    assert!(operations.cancel(id(33)));
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    assert_eq!(control(&response, 33, Action::Details).id, details_ids[11]);
+    assert_eq!(operations.history().len(), MAX_HISTORY);
+    assert_eq!(
+        operations.enqueue(&request(34)),
+        Err(Refusal::HistoryCapacity)
+    );
+    assert!(operations.acknowledge(id(33)));
+    operations.enqueue(&request(34)).unwrap();
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    assert_eq!(control(&response, 34, Action::Details).id, details_ids[11]);
+}
+
+fn release_key(key: Key) -> Event {
+    Event::Key {
+        key,
+        physical_key: None,
+        pressed: false,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    }
+}
+fn retire(operations: &mut Operations, sequence: u64) {
+    operations
+        .report(&stopped(sequence, 1, Outcome::Completed))
+        .unwrap();
+    assert!(operations.acknowledge(id(sequence)));
+}
+
+#[test]
+fn r05_recycled_slot_rejects_old_focus_and_held_enter_space_but_new_intent_works() {
+    for activation in [Key::Enter, Key::Space] {
+        for action in [Action::Cancel, Action::Details, Action::Acknowledge] {
+            let ctx = Context::default();
+            let mut operations = Operations::new(7);
+            operations.enqueue(&request(1)).unwrap();
+            operations.next_command();
+            if action == Action::Acknowledge {
+                operations
+                    .report(&stopped(1, 1, Outcome::Completed))
+                    .unwrap();
+            }
+            let (_, response) = frame(&ctx, &mut operations, vec![]);
+            control(&response, 1, action).request_focus();
+            if action == Action::Acknowledge {
+                operations.acknowledge(id(1));
+            } else {
+                retire(&mut operations, 1);
+            }
+            operations.enqueue(&request(2)).unwrap();
+            operations.next_command();
+            if action == Action::Acknowledge {
+                operations
+                    .report(&stopped(2, 1, Outcome::Completed))
+                    .unwrap();
+            }
+            let (output, response) = frame(&ctx, &mut operations, vec![key(activation)]);
+            assert!(!control(&response, 2, action).has_focus());
+            assert_eq!(
+                texts(&output)
+                    .iter()
+                    .filter(|s| s.starts_with("Source:"))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                operations.history().len(),
+                usize::from(action == Action::Acknowledge)
+            );
+            if action != Action::Acknowledge {
+                assert_eq!(operations.active().unwrap().state(), State::Active);
+            }
+            // Even externally restoring focus cannot turn a held old key into new intent.
+            control(&response, 2, action).request_focus();
+            let mut repeated = key(activation);
+            if let Event::Key { repeat, .. } = &mut repeated {
+                *repeat = true;
+            }
+            let (output, _) = frame(&ctx, &mut operations, vec![repeated]);
+            assert_eq!(
+                texts(&output)
+                    .iter()
+                    .filter(|s| s.starts_with("Source:"))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                operations.history().len(),
+                usize::from(action == Action::Acknowledge)
+            );
+            if action != Action::Acknowledge {
+                assert_eq!(operations.active().unwrap().state(), State::Active);
+            }
+            let (_, response) = frame(&ctx, &mut operations, vec![release_key(activation)]);
+            control(&response, 2, action).request_focus();
+            frame(&ctx, &mut operations, vec![key(activation)]);
+            match action {
+                Action::Cancel => {
+                    assert_eq!(operations.active().unwrap().state(), State::Cancelling)
+                }
+                Action::Details => assert_eq!(
+                    texts(&frame(&ctx, &mut operations, vec![]).0)
+                        .iter()
+                        .filter(|s| s.starts_with("Source:"))
+                        .count(),
+                    2
+                ),
+                Action::Acknowledge => assert!(operations.history().is_empty()),
+            }
+        }
+    }
+}
+
+#[test]
+fn r05_recycled_slot_and_recreated_controller_disarm_old_pointer_until_release() {
+    for recreate in [false, true] {
+        for action in [Action::Cancel, Action::Details, Action::Acknowledge] {
+            let ctx = Context::default();
+            let mut operations = Operations::new(7);
+            operations.enqueue(&request(1)).unwrap();
+            operations.next_command();
+            if action == Action::Acknowledge {
+                operations
+                    .report(&stopped(1, 1, Outcome::Completed))
+                    .unwrap();
+            }
+            let (_, response) = frame(&ctx, &mut operations, vec![]);
+            let pos = control(&response, 1, action).rect.center();
+            frame(
+                &ctx,
+                &mut operations,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            if recreate {
+                operations = Operations::new(7);
+            } else if action == Action::Acknowledge {
+                operations.acknowledge(id(1));
+            } else {
+                retire(&mut operations, 1);
+            }
+            operations.enqueue(&request(2)).unwrap();
+            operations.next_command();
+            if action == Action::Acknowledge {
+                operations
+                    .report(&stopped(2, 1, Outcome::Completed))
+                    .unwrap();
+            }
+            let (_, response) = frame(&ctx, &mut operations, vec![]);
+            let new_pos = control(&response, 2, action).rect.center();
+            frame(&ctx, &mut operations, vec![]);
+            frame(
+                &ctx,
+                &mut operations,
+                vec![
+                    Event::PointerMoved(new_pos),
+                    Event::PointerButton {
+                        pos: new_pos,
+                        button: PointerButton::Primary,
+                        pressed: false,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            assert_eq!(
+                operations.history().len(),
+                usize::from(action == Action::Acknowledge)
+            );
+            if action != Action::Acknowledge {
+                assert_eq!(operations.active().unwrap().state(), State::Active);
+            }
+            let (output, response) = frame(&ctx, &mut operations, vec![]);
+            assert_eq!(
+                texts(&output)
+                    .iter()
+                    .filter(|s| s.starts_with("Source:"))
+                    .count(),
+                1
+            );
+            click(&ctx, &mut operations, control(&response, 2, action));
+            match action {
+                Action::Cancel => {
+                    assert_eq!(operations.active().unwrap().state(), State::Cancelling)
+                }
+                Action::Details => assert_eq!(
+                    texts(&frame(&ctx, &mut operations, vec![]).0)
+                        .iter()
+                        .filter(|s| s.starts_with("Source:"))
+                        .count(),
+                    2
+                ),
+                Action::Acknowledge => assert!(operations.history().is_empty()),
+            }
+        }
+    }
+}
+
+#[test]
+fn r05_recreated_controller_rejects_owned_focus_keys_including_toggle() {
+    for activation in [Key::Enter, Key::Space] {
+        for action in [
+            None,
+            Some(Action::Details),
+            Some(Action::Cancel),
+            Some(Action::Acknowledge),
+        ] {
+            let ctx = Context::default();
+            let mut operations = Operations::new(7);
+            operations.enqueue(&request(1)).unwrap();
+            operations.next_command();
+            if action == Some(Action::Acknowledge) {
+                operations
+                    .report(&stopped(1, 1, Outcome::Completed))
+                    .unwrap();
+            }
+            let (_, response) = frame(&ctx, &mut operations, vec![]);
+            if let Some(action) = action {
+                control(&response, 1, action).request_focus();
+            } else {
+                response.toggle.request_focus();
+            }
+            operations = Operations::new(7);
+            operations.enqueue(&request(2)).unwrap();
+            operations.next_command();
+            if action == Some(Action::Acknowledge) {
+                operations
+                    .report(&stopped(2, 1, Outcome::Completed))
+                    .unwrap();
+            }
+            let (output, response) = frame(&ctx, &mut operations, vec![key(activation)]);
+            assert!(operations.is_open());
+            assert_eq!(
+                texts(&output)
+                    .iter()
+                    .filter(|s| s.starts_with("Source:"))
+                    .count(),
+                1
+            );
+            assert!(!response.toggle.has_focus());
+            assert!(response.controls.iter().all(|c| !c.response.has_focus()));
+            assert_eq!(
+                operations.history().len(),
+                usize::from(action == Some(Action::Acknowledge))
+            );
+            if action != Some(Action::Acknowledge) {
+                assert_eq!(operations.active().unwrap().state(), State::Active);
+            }
+            frame(&ctx, &mut operations, vec![release_key(activation)]);
+            let (_, response) = frame(&ctx, &mut operations, vec![]);
+            if let Some(action) = action {
+                control(&response, 2, action).request_focus();
+            } else {
+                response.toggle.request_focus();
+            }
+            frame(&ctx, &mut operations, vec![key(activation)]);
+            match action {
+                None => assert!(!operations.is_open()),
+                Some(Action::Cancel) => {
+                    assert_eq!(operations.active().unwrap().state(), State::Cancelling)
+                }
+                Some(Action::Details) => assert_eq!(
+                    texts(&frame(&ctx, &mut operations, vec![]).0)
+                        .iter()
+                        .filter(|s| s.starts_with("Source:"))
+                        .count(),
+                    2
+                ),
+                Some(Action::Acknowledge) => assert!(operations.history().is_empty()),
+            }
+        }
+    }
+}
+
+fn retry_frame(ctx: &Context, operations: &mut Operations, events: Vec<Event>) -> FullOutput {
+    let mut passes = 0;
+    let mut output = ctx.run_ui(
+        RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(700.0, 800.0),
+            )),
+            time: Some(ctx.input(|i| i.time) + 0.2),
+            events,
+            ..Default::default()
+        },
+        |ui| {
+            operations.show(ui);
+            passes += 1;
+            if ctx.current_pass_index() == 0 {
+                ctx.request_discard("r05 cached input regression");
+            }
+        },
+    );
+    output.textures_delta.clear();
+    assert_eq!(passes, 2);
+    output
+}
+
+#[test]
+fn r05_opening_cached_click_and_layout_retry_do_not_activate_or_double_toggle_details() {
+    let ctx = Context::default();
+    let mut operations = Operations::new(7);
+    operations.enqueue(&request(1)).unwrap();
+    operations.next_command();
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    let pos = control(&response, 1, Action::Details).rect.center();
+    let pointer = |pressed| Event::PointerButton {
+        pos,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    frame(
+        &ctx,
+        &mut operations,
+        vec![Event::PointerMoved(pos), pointer(true)],
+    );
+    retire(&mut operations, 1);
+    operations.enqueue(&request(2)).unwrap();
+    operations.next_command();
+    let output = retry_frame(&ctx, &mut operations, vec![pointer(false)]);
+    assert_eq!(
+        texts(&output)
+            .iter()
+            .filter(|s| s.starts_with("Source:"))
+            .count(),
+        1
+    );
+    // A fresh click or key press applies exactly once even if egui retries layout.
+    frame(&ctx, &mut operations, vec![pointer(true)]);
+    let output = retry_frame(&ctx, &mut operations, vec![pointer(false)]);
+    assert_eq!(
+        texts(&output)
+            .iter()
+            .filter(|s| s.starts_with("Source:"))
+            .count(),
+        2
+    );
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    control(&response, 2, Action::Details).request_focus();
+    let output = retry_frame(&ctx, &mut operations, vec![key(Key::Enter)]);
+    assert_eq!(
+        texts(&output)
+            .iter()
+            .filter(|s| s.starts_with("Source:"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn r05_cancel_and_ack_roles_do_not_share_pointer_or_focus_identity() {
+    let ctx = Context::default();
+    let mut operations = Operations::new(7);
+    operations.enqueue(&request(1)).unwrap();
+    operations.enqueue(&request(2)).unwrap();
+    operations.next_command();
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    let cancel_id = control(&response, 1, Action::Cancel).id;
+    let pos = control(&response, 1, Action::Cancel).rect.center();
+    frame(
+        &ctx,
+        &mut operations,
+        vec![
+            Event::PointerMoved(pos),
+            Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+        ],
+    );
+    operations
+        .report(&stopped(1, 1, Outcome::Completed))
+        .unwrap();
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    let ack = control(&response, 1, Action::Acknowledge);
+    assert_ne!(cancel_id, ack.id);
+    assert!(!ack.has_focus());
+    let pos = ack.rect.center();
+    frame(
+        &ctx,
+        &mut operations,
+        vec![
+            Event::PointerMoved(pos),
+            Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            },
+        ],
+    );
+    assert_eq!(operations.history().len(), 1);
+    assert_eq!(operations.queued()[0].state(), State::Queued);
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    click(
+        &ctx,
+        &mut operations,
+        control(&response, 1, Action::Acknowledge),
+    );
+    assert!(operations.history().is_empty());
+}
+
+#[test]
+fn r05_ownership_changes_preserve_browsing_and_other_window_focus_and_input() {
+    let ctx = Context::default();
+    let mut operations = Operations::new(7);
+    let mut other = Operations::new(8);
+    let other_request = Request::new(
+        OperationId {
+            window: 8,
+            sequence: 1,
+        },
+        Kind::Copy,
+        vec![PathBuf::from("other-window-path")],
+        None,
+    )
+    .unwrap();
+    other.enqueue(&other_request).unwrap();
+    let mut field = None;
+    let mut text = String::new();
+    let mut other_details = None;
+    let mut output = ctx.run_ui(RawInput::default(), |ui| {
+        operations.show(ui);
+        other_details = Some(other.show(ui).controls.remove(0).response);
+        field = Some(ui.text_edit_singleline(&mut text));
+    });
+    output.textures_delta.clear();
+    let field_id = field.as_ref().unwrap().id;
+    field.unwrap().request_focus();
+    operations = Operations::new(7);
+    operations.enqueue(&request(1)).unwrap();
+    let mut output = ctx.run_ui(
+        RawInput {
+            events: vec![Event::Text("browsing".into())],
+            ..Default::default()
+        },
+        |ui| {
+            operations.show(ui);
+            other.show(ui);
+            ui.text_edit_singleline(&mut text);
+        },
+    );
+    output.textures_delta.clear();
+    assert_eq!(text, "browsing");
+    assert_eq!(ctx.memory(|m| m.focused()), Some(field_id));
+    other_details.as_ref().unwrap().request_focus();
+    operations = Operations::new(7);
+    let mut output = ctx.run_ui(
+        RawInput {
+            events: vec![release_key(Key::Enter)],
+            ..Default::default()
+        },
+        |ui| {
+            operations.show(ui);
+            let response = other.show(ui);
+            other_details = Some(response.controls[0].response.clone());
+            ui.text_edit_singleline(&mut text);
+        },
+    );
+    output.textures_delta.clear();
+    assert!(other_details.as_ref().unwrap().has_focus());
+    let mut output = ctx.run_ui(
+        RawInput {
+            events: vec![key(Key::Space)],
+            ..Default::default()
+        },
+        |ui| {
+            operations.show(ui);
+            other.show(ui);
+            ui.text_edit_singleline(&mut text);
+        },
+    );
+    output.textures_delta.clear();
+    assert_eq!(
+        texts(&output)
+            .iter()
+            .filter(|s| s.as_str() == "Source: other-window-path")
+            .count(),
+        2
+    );
+    assert!(other.is_open());
+    assert_eq!(other.queued().len(), 1);
+    assert_eq!(other.queued()[0].state(), State::Queued);
+}
+
+#[test]
+fn r05_release_on_previous_layout_rectangle_does_not_activate_moved_record() {
+    let ctx = Context::default();
+    let mut operations = Operations::new(7);
+    operations.enqueue(&request(1)).unwrap();
+    operations.enqueue(&request(2)).unwrap();
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    let old = control(&response, 1, Action::Details).clone();
+    let pos = old.rect.center();
+    frame(
+        &ctx,
+        &mut operations,
+        vec![
+            Event::PointerMoved(pos),
+            Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+        ],
+    );
+    operations.next_command();
+    // Promotion changes layout in this release frame. Egui hit-tests the old rect.
+    let (output, response) = frame(
+        &ctx,
+        &mut operations,
+        vec![Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    assert_eq!(control(&response, 1, Action::Details).id, old.id);
+    assert!(!control(&response, 1, Action::Details).rect.contains(pos));
+    assert_eq!(
+        texts(&output)
+            .iter()
+            .filter(|s| s.starts_with("Source:"))
+            .count(),
+        2
+    );
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    click(
+        &ctx,
+        &mut operations,
+        control(&response, 1, Action::Details),
+    );
+    assert_eq!(
+        texts(&frame(&ctx, &mut operations, vec![]).0)
+            .iter()
+            .filter(|s| s.starts_with("Source:"))
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn r05_release_then_new_press_in_one_batch_rearms_new_ownership() {
+    let ctx = Context::default();
+    let mut operations = Operations::new(7);
+    operations.enqueue(&request(1)).unwrap();
+    operations.next_command();
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    let pos = control(&response, 1, Action::Details).rect.center();
+    let pointer = |pressed| Event::PointerButton {
+        pos,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    frame(
+        &ctx,
+        &mut operations,
+        vec![Event::PointerMoved(pos), pointer(true)],
+    );
+    retire(&mut operations, 1);
+    operations.enqueue(&request(2)).unwrap();
+    operations.next_command();
+    frame(&ctx, &mut operations, vec![]);
+    let (output, _) = frame(&ctx, &mut operations, vec![pointer(false), pointer(true)]);
+    assert_eq!(
+        texts(&output)
+            .iter()
+            .filter(|s| s.starts_with("Source:"))
+            .count(),
+        1
+    );
+    frame(&ctx, &mut operations, vec![pointer(false)]);
+    let (output, response) = frame(&ctx, &mut operations, vec![]);
+    assert_eq!(
+        texts(&output)
+            .iter()
+            .filter(|s| s.starts_with("Source:"))
+            .count(),
+        2
+    );
+    control(&response, 2, Action::Details).request_focus();
+    frame(&ctx, &mut operations, vec![key(Key::Enter)]);
+    retire(&mut operations, 2);
+    operations.enqueue(&request(3)).unwrap();
+    operations.next_command();
+    let (_, response) = frame(&ctx, &mut operations, vec![]);
+    control(&response, 3, Action::Details).request_focus();
+    let (output, _) = frame(
+        &ctx,
+        &mut operations,
+        vec![release_key(Key::Enter), key(Key::Enter)],
+    );
+    assert_eq!(
+        texts(&output)
+            .iter()
+            .filter(|s| s.starts_with("Source:"))
+            .count(),
+        2
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn p09_native_namespace_and_non_unicode_display_collision_never_become_command_data() {
