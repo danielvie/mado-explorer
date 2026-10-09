@@ -2,7 +2,7 @@
 
 ## Accepted main
 
-- d5a4681 is current main. Tracked working tree is clean.
+- d5a4681 is the accepted application/backend baseline. Subsequent checkpoint commits add documentation only. Tracked working tree was clean at this checkpoint; inspect current git HEAD before integration.
 - 5aae419 records the approved topology: three feature workers, two fresh fix slots, one separate serial integration lane. Five applies to feature/fix workers only. Parent alone accepts/integrates; read-only reviewers are separate. Ready integration backlog cap three.
 - 54136b3 accepts reviewed S011 workspace/settings persistence with production saving enabled. Fourteen focused tests and full root suite pass: 110 passing Rust tests, one optional font probe ignored; workflow guard check passes. Disposable native normal/minimized close, final save, normal geometry and cold restart from application-written settings pass. No personal settings or interactive clipboard development access.
 - 78eefc3 promotes the reviewed standalone PDF backend without GUI enablement. Reviewed f4d4d6c preserved at archive/p03b-reviewed; component subtree 9ec7aac20df6dab05e6c1a0d028e2c5d33ccaceb stayed identical through rebase/squash. Nine backend checks pass on main. task test now includes test:pdf and workflow:test.
