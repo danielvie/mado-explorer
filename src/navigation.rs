@@ -29,6 +29,8 @@ pub struct Navigation {
     pub sorted_key: Option<Key>,
     pub filter: String,
     query_revision: u64,
+    pub show_hidden_system: bool,
+    visibility_revision: u64,
     active_generation: u64,
 }
 
@@ -45,22 +47,49 @@ impl Navigation {
             sorted_key: None,
             filter: String::new(),
             query_revision: 0,
+            show_hidden_system: false,
+            visibility_revision: 0,
             active_generation: 0,
         }
     }
 
-    pub fn resolve(&self, text: &str) -> PathBuf {
-        // Submitting unchanged displayed text must not turn a native path into a
-        // lossy display string. User edits necessarily go through Unicode text.
-        if text == self.current.location.to_string_lossy() {
-            return self.current.location.clone();
+    pub fn resolve(&self, text: &str) -> Result<PathBuf, &'static str> {
+        // An unchanged diagnostic retains its native identity; edited diagnostic
+        // text is never interpreted as an action path.
+        if text == crate::native::display(self.current.location.as_os_str()) {
+            return Ok(self.current.location.clone());
+        }
+        if crate::native::is_diagnostic(text) {
+            return Err(
+                "Non-Unicode diagnostic text is not an editable path. Use breadcrumbs, Up, or enter a Unicode folder path.",
+            );
         }
         let path = PathBuf::from(text);
-        if path.is_absolute() {
+        #[cfg(windows)]
+        if let Some(std::path::Component::Prefix(prefix)) = path.components().next() {
+            use std::path::Prefix;
+            if !path.is_absolute() {
+                return Err(
+                    "Drive-relative paths (such as C:folder or C:) are ambiguous. Enter a full path such as C:\\folder, or an ordinary relative path.",
+                );
+            }
+            if !matches!(
+                prefix.kind(),
+                Prefix::Disk(_)
+                    | Prefix::UNC(_, _)
+                    | Prefix::VerbatimDisk(_)
+                    | Prefix::VerbatimUNC(_, _)
+            ) {
+                return Err(
+                    "Enter an absolute filesystem path, not a device namespace or ambiguous prefixed path.",
+                );
+            }
+        }
+        Ok(if path.is_absolute() {
             path
         } else {
             self.current.location.join(path)
-        }
+        })
     }
 
     pub fn up(&self) -> Option<PathBuf> {
@@ -171,6 +200,13 @@ impl Navigation {
         }
     }
 
+    pub fn set_show_hidden_system(&mut self, show: bool) {
+        if self.show_hidden_system != show {
+            self.show_hidden_system = show;
+            self.visibility_revision += 1;
+        }
+    }
+
     pub fn projection_fresh(&self) -> bool {
         self.sorted_key == Some(self.key())
     }
@@ -189,6 +225,8 @@ impl Navigation {
             revision: self.visible().revision,
             sort: self.sort,
             query_revision: self.query_revision,
+            show_hidden_system: self.show_hidden_system,
+            visibility_revision: self.visibility_revision,
         }
     }
 
@@ -280,6 +318,8 @@ mod tests {
             modified_time: None,
             size: Some(1),
             metadata_error: None,
+            hidden: false,
+            system: false,
         });
         nav.apply(Response {
             generation: 2,
@@ -333,7 +373,7 @@ mod tests {
         let stale_key = nav.key();
         nav.begin(PathBuf::from("root/b"), 2, Intent::New);
         nav.begin(PathBuf::from("root/c"), 3, Intent::New);
-        assert_eq!(nav.resolve("child"), a.join("child"));
+        assert_eq!(nav.resolve("child").unwrap(), a.join("child"));
         assert!(!finish(&mut nav, 2, true));
         assert_eq!(nav.current.location, a);
         assert!(nav.back.is_empty());
@@ -352,7 +392,10 @@ mod tests {
             },
         });
         assert!(!nav.apply_sorted(Sorted::for_test(key, entries)));
-        assert_eq!(nav.resolve("child"), nav.current.location.join("child"));
+        assert_eq!(
+            nav.resolve("child").unwrap(),
+            nav.current.location.join("child")
+        );
         assert_eq!(nav.back, vec![a]);
     }
 
@@ -580,6 +623,117 @@ mod tests {
         accept_filter(&mut nav);
         assert_eq!(nav.current.entries.len(), 3);
         assert!(nav.selection.paths.is_empty());
+    }
+
+    #[test]
+    fn s006_visibility_freshness_pruning_and_progressive_command_boundary() {
+        let mut nav = ready();
+        let mut data = filter_rows();
+        Arc::get_mut(&mut Arc::get_mut(&mut data).unwrap()[1])
+            .unwrap()
+            .system = true;
+        nav.current.raw_entries = data.clone();
+        nav.set_show_hidden_system(true);
+        accept_filter(&mut nav);
+        nav.selection.select_all(&nav.current.entries);
+        nav.selection.click(&data, 1, true, false);
+        nav.selection.click(&data, 1, true, false); // system entry active/anchor, all selected
+        let stale = nav.key();
+        nav.set_show_hidden_system(false);
+        assert!(!nav.rows_selectable());
+        nav.set_show_hidden_system(true);
+        assert_ne!(nav.key(), stale); // returning to same boolean still advances revision
+        assert!(!nav.apply_sorted(crate::sorting::project_for_test(stale, data.clone(), "")));
+        nav.set_show_hidden_system(false);
+        let retained = nav.selection.paths.clone();
+        nav.current.status = Status::Loading;
+        accept_filter(&mut nav);
+        assert!(nav.rows_selectable()); // no extra global pause for empty-query browsing
+        assert_eq!(nav.selection.paths, retained); // incomplete absence cannot prune
+        assert_eq!(crate::active_activation(&nav, false), None); // hidden active path is not visible
+        assert_eq!(
+            crate::capture_activation(&nav, &data[0].path, false),
+            Some(crate::Activation::Folder(data[0].path.clone()))
+        );
+        nav.current.status = Status::Failed(Failure {
+            kind: FailureKind::Other,
+            detail: "incomplete".into(),
+        });
+        accept_filter(&mut nav);
+        assert_eq!(nav.selection.paths, retained);
+        nav.current.status = Status::Ready;
+        nav.current.revision += 1;
+        accept_filter(&mut nav);
+        assert_eq!(nav.selection.paths.len(), 2);
+        assert!(!nav.selection.paths.contains(&data[1].path));
+        assert!(nav.selection.active.is_none() && nav.selection.anchor.is_none());
+        nav.selection.select_all(&nav.current.entries);
+        assert_eq!(nav.selection.paths.len(), 2);
+        nav.set_show_hidden_system(true);
+        accept_filter(&mut nav);
+        assert_eq!(nav.current.entries.len(), 3);
+        assert_eq!(nav.selection.paths.len(), 2); // show does not resurrect selection
+        nav.set_filter("al".into());
+        nav.current.status = Status::Loading;
+        accept_filter(&mut nav);
+        assert!(!nav.rows_selectable()); // preserve S004 query-loading pause
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn s006_typed_paths_reject_drive_relative_and_preserve_absolute_prefixes() {
+        use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+        let mut nav = Navigation::new(PathBuf::from(r"C:\fixture\committed"));
+        nav.selection
+            .paths
+            .insert(nav.current.location.join("selected"));
+        nav.back.push(PathBuf::from(r"C:\previous"));
+        let selection = nav.selection.paths.clone();
+        nav.begin(PathBuf::from(r"C:\pending"), 1, Intent::New);
+        for text in ["C:relative", "C:", "D:child", r"\\?\C:relative"] {
+            assert!(nav.resolve(text).is_err(), "ambiguous input {text}");
+        }
+        assert_eq!(
+            nav.resolve("child").unwrap(),
+            PathBuf::from(r"C:\fixture\committed\child")
+        );
+        assert_eq!(
+            nav.resolve(r"..\sibling").unwrap(),
+            nav.current.location.join(r"..\sibling")
+        );
+        assert_eq!(
+            nav.resolve(r"\rooted").unwrap(),
+            PathBuf::from(r"C:\rooted")
+        );
+        for text in [
+            r"D:\full",
+            r"\\server\share\folder",
+            r"\\?\C:\long\folder",
+            r"\\?\UNC\server\share\folder",
+        ] {
+            assert_eq!(
+                nav.resolve(text).unwrap().as_os_str(),
+                std::ffi::OsStr::new(text)
+            );
+            assert!(nav.resolve(text).unwrap().is_absolute());
+        }
+        finish(&mut nav, 1, false);
+        assert_eq!(nav.current.location, PathBuf::from(r"C:\fixture\committed"));
+        assert_eq!(nav.back, [PathBuf::from(r"C:\previous")]);
+        assert_eq!(nav.selection.paths, selection);
+        let mut units: Vec<_> = r"C:\fixture\".encode_utf16().collect();
+        units.push(0xD800);
+        nav.current.location = PathBuf::from(OsString::from_wide(&units));
+        let diagnostic = crate::native::display(nav.current.location.as_os_str());
+        assert_eq!(
+            nav.resolve(&diagnostic).unwrap().as_os_str(),
+            nav.current.location.as_os_str()
+        );
+        assert!(nav.resolve(&(diagnostic + "edited")).is_err());
+        assert_eq!(
+            nav.resolve(r"actual-�").unwrap(),
+            nav.current.location.join("actual-�")
+        );
     }
 
     #[test]

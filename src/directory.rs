@@ -44,12 +44,14 @@ pub struct Entry {
     pub modified_time: Option<SystemTime>,
     pub size: Option<u64>,
     pub metadata_error: Option<String>,
+    pub hidden: bool,
+    pub system: bool,
 }
 
 impl Entry {
     fn read(entry: fs::DirEntry) -> Self {
         let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let name = crate::native::display(&entry.file_name());
         let mut row = Self {
             path,
             name,
@@ -58,10 +60,22 @@ impl Entry {
             modified_time: None,
             size: None,
             metadata_error: None,
+            hidden: false,
+            system: false,
         };
-        // Do not follow links just to display a row, especially onto a slow remote target.
-        match fs::symlink_metadata(&row.path) {
+        // DirEntry metadata never follows links and uses cached enumeration data on Windows.
+        match entry.metadata() {
             Ok(metadata) => {
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    use windows_sys::Win32::Storage::FileSystem::{
+                        FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM,
+                    };
+                    let attributes = metadata.file_attributes();
+                    row.hidden = attributes & FILE_ATTRIBUTE_HIDDEN != 0;
+                    row.system = attributes & FILE_ATTRIBUTE_SYSTEM != 0;
+                }
                 row.kind = if is_link(&metadata) {
                     EntryKind::Link
                 } else if metadata.is_dir() {
@@ -113,7 +127,9 @@ fn is_link(metadata: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        metadata.file_attributes() & 0x400 != 0 // FILE_ATTRIBUTE_REPARSE_POINT
+        metadata.file_attributes()
+            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+            != 0
     }
     #[cfg(not(windows))]
     {
@@ -610,6 +626,146 @@ mod tests {
             .find(|entry| entry.kind == EntryKind::Folder)
             .unwrap();
         assert_eq!(folder.size, None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn s006_owned_hidden_system_attributes_project_without_touching_identity() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM, SetFileAttributesW,
+        };
+        let fixture = Fixture::new();
+        for (name, attributes) in [
+            ("hidden.txt", FILE_ATTRIBUTE_HIDDEN),
+            ("system.txt", FILE_ATTRIBUTE_SYSTEM),
+            ("both", FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM),
+        ] {
+            let path = fixture.0.join(name);
+            if name == "both" {
+                fs::create_dir(&path).unwrap();
+            } else {
+                fs::write(&path, b"fixture").unwrap();
+            }
+            let wide: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+            // SAFETY: NUL-terminated path in this test's generated disposable directory.
+            assert_ne!(
+                unsafe { SetFileAttributesW(wide.as_ptr(), attributes) },
+                0,
+                "owned attribute fixture unsupported: {}",
+                io::Error::last_os_error()
+            );
+        }
+        fs::write(fixture.0.join("visible-\u{10437}.txt"), b"unicode").unwrap();
+        let state = load(&fixture.0);
+        assert!(matches!(state.status, Status::Ready));
+        assert_eq!(state.metadata_errors, 0);
+        for row in state.entries.iter() {
+            assert_eq!(row.hidden, row.name == "hidden.txt" || row.name == "both");
+            assert_eq!(row.system, row.name == "system.txt" || row.name == "both");
+            assert_eq!(row.path, fixture.0.join(&row.name));
+        }
+        let mut nav = crate::navigation::Navigation::new(fixture.0.clone());
+        let hidden = crate::sorting::project_for_test(nav.key(), state.raw_entries.clone(), "");
+        assert_eq!(hidden.entries.len(), 1);
+        assert_eq!(
+            hidden.entries[0].path,
+            fixture.0.join("visible-\u{10437}.txt")
+        );
+        nav.set_show_hidden_system(true);
+        let shown = crate::sorting::project_for_test(nav.key(), state.raw_entries.clone(), "");
+        assert_eq!(shown.entries.len(), 4);
+        assert_eq!(shown.entries[0].kind, EntryKind::Folder);
+        let filtered = crate::sorting::project_for_test(nav.key(), state.raw_entries, "SYS");
+        assert_eq!(filtered.entries.len(), 1);
+        assert_eq!(filtered.entries[0].path, fixture.0.join("system.txt"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn s006_long_verbatim_unicode_fixture_enumerates_native_paths() {
+        use std::os::windows::ffi::OsStrExt;
+        let fixture = Fixture::new();
+        let mut path = fs::canonicalize(&fixture.0).unwrap();
+        assert!(
+            path.as_os_str()
+                .encode_wide()
+                .collect::<Vec<_>>()
+                .starts_with(&[92, 92, 63, 92])
+        );
+        for i in 0..4 {
+            path.push(format!("segment-{i}-{}", "x".repeat(60)));
+            fs::create_dir(&path)
+                .expect("generated verbatim long-path directory must be supported");
+        }
+        assert!(path.as_os_str().encode_wide().count() > 260);
+        let file = path.join("日本語-é-\u{10437}.txt");
+        fs::write(&file, b"native long path")
+            .expect("generated long Unicode file must be supported");
+        let state = load(&path);
+        assert!(matches!(state.status, Status::Ready));
+        assert_eq!(state.entries.len(), 1);
+        assert_eq!(state.entries[0].path.as_os_str(), file.as_os_str());
+        assert_eq!(state.entries[0].name, "日本語-é-\u{10437}.txt");
+        assert_eq!(
+            fs::read(&state.entries[0].path).unwrap(),
+            b"native long path"
+        );
+        let mut nav = crate::navigation::Navigation::new(path.clone());
+        nav.current.status = Status::Ready;
+        nav.current.raw_entries = state.raw_entries;
+        assert!(nav.apply_sorted(crate::sorting::project_for_test(
+            nav.key(),
+            nav.current.raw_entries.clone(),
+            "日本\u{10437}"
+        )));
+        assert_eq!(
+            crate::capture_activation(&nav, &file, false),
+            Some(crate::Activation::File(file.clone()))
+        );
+        assert_eq!(
+            nav.resolve(&crate::native::display(path.as_os_str()))
+                .unwrap()
+                .as_os_str(),
+            path.as_os_str()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn s006_malformed_fixture_names_keep_native_actions_and_distinct_display() {
+        use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+        let fixture = Fixture::new();
+        let names = [
+            OsString::from_wide(&[0x78, 0xD800]),
+            OsString::from_wide(&[0x78, 0xD801]),
+        ];
+        for name in &names {
+            fs::write(fixture.0.join(name), b"native")
+                .expect("generated malformed UTF-16 fixture must be supported");
+        }
+        let state = load(&fixture.0);
+        assert!(matches!(state.status, Status::Ready));
+        assert_eq!(state.entries.len(), 2);
+        assert_ne!(state.entries[0].name, state.entries[1].name);
+        let mut nav = crate::navigation::Navigation::new(fixture.0.clone());
+        nav.current.raw_entries = state.raw_entries;
+        nav.current.status = Status::Ready;
+        assert!(nav.apply_sorted(crate::sorting::project_for_test(
+            nav.key(),
+            nav.current.raw_entries.clone(),
+            ""
+        )));
+        nav.selection.select_all(&nav.current.entries);
+        assert_eq!(nav.selection.paths.len(), 2);
+        for path in &nav.selection.paths {
+            assert!(names.iter().any(|name| path == &fixture.0.join(name)));
+            assert_eq!(fs::read(path).unwrap(), b"native");
+            assert_eq!(
+                crate::capture_activation(&nav, path, false),
+                Some(crate::Activation::File(path.clone()))
+            );
+        }
     }
 
     #[test]

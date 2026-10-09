@@ -140,6 +140,8 @@ pub(crate) mod tests {
                         modified_time: None,
                         size: None,
                         metadata_error: None,
+                        hidden: false,
+                        system: false,
                     })
                 })
                 .collect(),

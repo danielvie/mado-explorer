@@ -2,20 +2,21 @@
 
 ## Current state
 
-- Baseline: S001-S005 accepted; the read-only explorer also routes explicit regular-file activation through Windows defaults.
+- Baseline: S001-S006 core changes accepted; hidden/system and native-path behavior exist, with a confirmed Unicode-rendering gap awaiting S006a.
 - Implementation policy: AGENTS.md. Scope and acceptance contracts: SPEC.md.
 - Current checkpoint: 1, read-only explorer.
-- Active slice: S006, hidden/system visibility and native-path refinements, ready to launch.
-- Next supervisor action: launch S006, inspect its diff/checks, then perform the read-only milestone review before workspace development.
-- Ten criteria are implemented with pending manual checks; no criterion is fully verified yet. Partial behavior does not count as a completed criterion.
+- Active slice: S006a, confirmed glyph-rendering fix followed by R001 independent read-only checkpoint review.
+- Next supervisor action: resume the S006 worker for the narrow rendering fix, consume independent review, rerun affected checks/native capture, then select workspace work.
+- Ten criteria are implemented with pending manual checks; F01.6 remains in progress because native capture showed unreadable Japanese names. No criterion is fully verified yet.
 
-## Active slice S006
+## Active slice S006a and review R001
 
-- Behavior: toggle hidden/system entries through the background projection, retain native Unicode/long-path identities, distinguish links/reparse points, and avoid lossy display text becoming an action path.
-- Targets: remaining F01.6 browsing behavior; preserve F06/F02 freshness/visible-selection rules and F01.7 native launch boundaries.
-- Write boundary: src/ and README.md; existing Windows API features should suffice. The supervisor owns tracker/spec/glossary/design/AGENTS/Taskfile.
-- Focused check: owned-fixture hidden/system flags, stale visibility projections, Unicode/native display/action identity, supported long-path enumeration and safe typed-path handling. Normalize or clearly reject drive-relative prefixed input rather than committing a relative location whose rows cannot be safely launched.
-- Exclusions: mutation engine, implicit link-target traversal/activation, previews, tabs/splits, finder, shell menu/association changes, font-discovery framework and exhaustive UI automation.
+- Behavior: use a small bounded installed-Windows-font fallback for readable Unicode names; use ASCII or drawn sort markers rather than unsupported glyphs. Preserve all native action identities and existing source behavior.
+- Targets: confirmed F01.6 rendering gap and usable F01.2 direction feedback. No generalized font discovery, new framework or redistributed proprietary font assets.
+- Write boundary: worker owns src/ and README.md only; reviewer is read-only. The supervisor owns tracker/spec/glossary/design/AGENTS/Taskfile and acceptance/commits.
+- Focused check: actual glyph coverage from installed fonts, graceful missing-font handling and existing affected UI checks. Native PrintWindow capture can inspect this app's own generated-fixture window without foreground/desktop capture.
+- Review scope: current read-only production code, native launch/path boundaries, freshness/history/selection/filter/visibility correctness and evidence. Deferred tabs, operations, previews and release/manual checks are not milestone blockers merely because absent.
+- Exclusions: mutation engine, implicit link traversal, previews, tabs/splits, finder, registry/association changes, font-discovery framework and exhaustive UI automation.
 - Handoff: changed paths, exact checks/results, complete versus partial IDs, remaining risks, and next useful slice. Worker does not commit or change criterion statuses.
 
 ## Accepted slices
@@ -30,10 +31,12 @@
 
 - S005: fresh visible explicit activation captures native paths; regular files launch on one bounded background worker through ShellExecuteExW with STA/COM cleanup, no shell interpolation, no runas and no automatic queue/retry. Native preflight rejects missing/nonregular/reparse inputs. Supervisor inspected all launch code, dependency/API wiring and status/routing, and reran 16 affected tests plus formatting/compile checks successfully. Corrected busy-refusal wording so it remains accurate after the earlier launch finishes. Actual associations, shell extensions and long-path launches remain manually pending; external apps may write/execute independently of the explorer.
 
+- S006: worker-side hidden/system flags and revisioned visibility, distinct malformed-native diagnostics, drive-relative/device input rejection, Unicode/native-path fixtures and verbatim paths beyond 260 UTF-16 units. Supervisor inspected source and changed metadata reads to documented non-following DirEntry::metadata, which reuses cached enumeration data on Windows; all 51 tests and native build passed. Replaced generated emoji fixtures with supplementary non-emoji Unicode coverage. Own-window startup/normal shutdown passed, and DPI-aware PrintWindow capture inspected the full layout and sample metadata. Native capture exposed Japanese/sort-marker missing glyphs, so F01.6 is not considered complete yet.
+
 ## Blockers and pending manual checks
 
-- Native bootstrap/build succeeded. No current implementation blocker.
-- Supervisor attempted a disposable-fixture window capture, but Windows did not grant foreground access. Capture was refused before reading any desktop pixels; the helper closed its own process and removed its fixture. Visual acceptance remains pending rather than delaying unrelated work.
+- Confirmed GUI defect: Japanese names and triangle sort markers render as boxes with default fonts. Installed Windows fallback fonts are available; S006a fixes this narrow gap before read-only checkpoint sign-off.
+- Native own-window printing now provides a safe visual check without foreground access. The earlier foreground capture was refused before any desktop read. Milestone capture corrected harness title timing and DPI virtualization; these were wrapper issues, not app failures. Fixtures/processes were cleaned up.
 - Windows GUI smoke, Narrator, real clipboard interoperability, cross-volume operations, and clean-machine packaging will be checked at their relevant checkpoints, not declared passed in advance.
 
 ## Acceptance tracker
@@ -47,7 +50,7 @@ Statuses: Not started, In progress, Implemented, Verified, Blocked. Evidence mus
 | F01.3 | Implemented | Back, forward, up, breadcrumbs, and an editable full path navigate the active tab only | S002: committed/pending history, back/forward/up/breadcrumb/path controls, failed-destination and stale-result recovery; focused regressions pass. Root breadcrumb fixed on inspection. GUI smoke and future multi-tab isolation pending. |
 | F01.4 | Implemented | Empty folders, loading, access denied, missing folders, and unavailable drives have distinct visible states with retry/navigation available. | S001: explicit UI states and retry; real empty/missing/not-folder and synthetic denied/device checks pass. Real ACL/drive and interactive UI verification pending. |
 | F01.5 | Implemented | Directory enumeration and metadata loading run away from the UI thread | S001: two workers, coalesced requests, bounded batches and generation guards; cancellation/stale/latest-request tests pass. Actual slow/uninterruptible-device smoke pending. |
-| F01.6 | In progress | Unicode names and supported long paths work without lossy conversions | S001-S005 preserve native paths for identity, selection, sorting and UTF-16 launch; links/reparse points are labelled. S006 completes hidden/system visibility and Unicode/long/native-path checks/refinements. Non-Unicode UI display remains an explicit limitation until addressed. |
+| F01.6 | In progress | Unicode names and supported long paths work without lossy conversions | S006 hidden/system/native diagnostic/drive-relative/real Unicode/malformed UTF-16/long-path fixtures pass. Actual own-window capture shows unreadable Japanese glyphs; S006a must fix rendering before implementation-complete status. Provider/association/scaling checks remain pending. |
 | F01.7 | Implemented | Double-click or Enter opens a folder in the current tab, or opens a regular file using the OS default application | S005: folder routing and bounded ShellExecuteExW file launch use captured fresh visible native paths, exact editor/control/repeat guards and path-specific OS errors. Six new activation/launch checks and existing guards pass. Real associated-file/extension/long-path/native GUI verification pending. |
 | F02.1 | Implemented | Click selects one entry; Ctrl+click toggles entries; Shift+click selects a range in the current displayed order | S003: whole-row click/toggle/range/all, native non-Unicode identity and metadata/gap pointer regressions pass. Native GUI interaction pending; filtering integrates in S004. |
 | F02.2 | Implemented | Arrow keys, Home, End, Page Up, and Page Down move the active row and keep it visible | S003: boundaries/pages/Shift and active-row scroll targets pass state/headless checks at small and normal viewports. Native keyboard/visual verification pending. |

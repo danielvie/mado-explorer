@@ -76,6 +76,8 @@ pub struct Key {
     pub revision: u64,
     pub sort: Sort,
     pub query_revision: u64,
+    pub show_hidden_system: bool,
+    pub visibility_revision: u64,
 }
 
 pub struct Sorted {
@@ -140,7 +142,10 @@ fn project(request: Request) -> Sorted {
     let mut entries: Vec<_> = request
         .entries
         .iter()
-        .filter(|entry| matches_name(&entry.name, &query))
+        .filter(|entry| {
+            (request.key.show_hidden_system || !(entry.hidden || entry.system))
+                && matches_name(&entry.name, &query)
+        })
         .cloned()
         .collect();
     entries.sort_unstable_by(|a, b| request.key.sort.compare(a, b));
@@ -241,6 +246,8 @@ mod tests {
             modified_time: time,
             modified: "—".into(),
             metadata_error: None,
+            hidden: false,
+            system: false,
         })
     }
 
@@ -251,6 +258,8 @@ mod tests {
             generation: 1,
             revision: 1,
             query_revision: 0,
+            show_hidden_system: false,
+            visibility_revision: 0,
             sort: Sort::default(),
         };
         sorter.request(
@@ -262,6 +271,8 @@ mod tests {
             generation: 2,
             revision: 3,
             query_revision: 0,
+            show_hidden_system: false,
+            visibility_revision: 0,
             sort: Sort {
                 column: Column::Size,
                 descending: true,
@@ -304,6 +315,8 @@ mod tests {
             generation: 1,
             revision: 1,
             query_revision: 1,
+            show_hidden_system: false,
+            visibility_revision: 0,
             sort: Sort {
                 column: Column::Size,
                 descending: true,
@@ -344,6 +357,8 @@ mod tests {
             generation: 1,
             revision: 1,
             query_revision: 0,
+            show_hidden_system: false,
+            visibility_revision: 0,
             sort: Sort::default(),
         };
         for (revision, query) in [(1, "a"), (2, "z"), (3, "AL")] {
@@ -428,7 +443,11 @@ mod tests {
         assert_ne!(sort.compare(&a, &b), Ordering::Equal);
         assert_eq!(sort.compare(&a, &b), sort.compare(&b, &a).reverse());
         let nav = crate::navigation::Navigation::new(a.path.clone());
-        assert_eq!(nav.resolve(&a.path.to_string_lossy()), a.path);
+        assert_eq!(
+            nav.resolve(&crate::native::display(a.path.as_os_str()))
+                .unwrap(),
+            a.path
+        );
     }
 
     #[test]

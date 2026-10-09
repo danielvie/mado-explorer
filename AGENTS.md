@@ -58,6 +58,8 @@ Workers may propose statuses in their handoff but do not edit criterion statuses
 
 Tests use disposable directories with generated fixtures. Prefer Rust's built-in tests and standard library helpers; add dependencies only for a concrete requirement. Keep operation tests independent of the GUI.
 
+Do not add emojis to source, UI or documentation. Use drawn icons or plain labels; Unicode fixtures can use letters, accents and supplementary non-emoji characters.
+
 Keep source and documentation edits UTF-8. Prefer edit/write tools or Node's explicit UTF-8 file operations; if Python is necessary, use uv/uvx and explicit UTF-8 encoding. Windows default encodings caused avoidable failures in earlier slices.
 
 ## Task contract

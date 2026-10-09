@@ -1,4 +1,5 @@
 mod directory;
+mod native;
 mod navigation;
 mod open;
 mod selection;
@@ -40,6 +41,7 @@ struct Explorer {
     requested_sort: Option<Key>,
     location_text: String,
     location_editor_focused: bool,
+    location_error: Option<String>,
     filter_text: String,
     row_scroll_offset: f32,
     row_viewport_height: f32,
@@ -67,8 +69,9 @@ impl Explorer {
             sorter,
             launcher: Launcher::default(),
             requested_sort: None,
-            location_text: location.to_string_lossy().into_owned(),
+            location_text: native::display(location.as_os_str()),
             location_editor_focused: false,
+            location_error: None,
             filter_text: String::new(),
             row_scroll_offset: 0.0,
             row_viewport_height: 0.0,
@@ -79,6 +82,7 @@ impl Explorer {
     }
 
     fn navigate(&mut self, location: PathBuf, intent: Intent) {
+        self.location_error = None;
         let generation = self.loader.request(location.clone());
         self.navigation.begin(location, generation, intent);
     }
@@ -152,7 +156,10 @@ impl Explorer {
             let submitted =
                 input.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
             if (ui.button("Go").clicked() || submitted) && !self.location_text.is_empty() {
-                command = Some((self.navigation.resolve(&self.location_text), Intent::New));
+                match self.navigation.resolve(&self.location_text) {
+                    Ok(path) => command = Some((path, Intent::New)),
+                    Err(error) => self.location_error = Some(error.into()),
+                }
             }
         });
         egui::ScrollArea::horizontal()
@@ -171,8 +178,8 @@ impl Explorer {
                             component.as_os_str()
                         };
                         if ui
-                            .button(label.to_string_lossy())
-                            .on_hover_text(path.to_string_lossy())
+                            .button(native::display(label))
+                            .on_hover_text(native::display(path.as_os_str()))
                             .clicked()
                         {
                             command = Some((path.clone(), Intent::New));
@@ -208,6 +215,15 @@ impl Explorer {
                 self.navigation.set_filter(self.filter_text.clone());
             }
         });
+        ui.horizontal(|ui| {
+            let mut show = self.navigation.show_hidden_system;
+            if ui.checkbox(&mut show, "Show hidden/system entries")
+                .on_hover_text("Hidden and system entries are hidden by default. This affects immediate entries only; no links are followed.")
+                .changed()
+            {
+                self.navigation.set_show_hidden_system(show);
+            }
+        });
         if command.is_none() {
             command = match navigation_shortcut(ui.ctx(), editing) {
                 Some(Shortcut::Back) => self
@@ -236,22 +252,26 @@ impl Explorer {
     }
 
     fn status(&self, ui: &mut egui::Ui) {
+        if let Some(error) = &self.location_error {
+            ui.colored_label(egui::Color32::from_rgb(255, 180, 130), error);
+            ui.label("Location, history and selection retained. Edit the path and Go to retry.");
+        }
         if let Some(path) = self.launcher.busy_path() {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(format!("Requesting default application for {}… (one launch at a time; browsing remains available)", path.display()));
+                ui.label(format!("Requesting default application for {}… (one launch at a time; browsing remains available)", native::display(path.as_os_str())));
             });
         }
         if let Some(path) = &self.launcher.refused {
-            ui.colored_label(egui::Color32::from_rgb(255, 180, 130), format!("Did not launch {}: another launch was busy when requested. This request is not queued; retry explicitly when the launch slot is free.", path.display()));
+            ui.colored_label(egui::Color32::from_rgb(255, 180, 130), format!("Did not launch {}: another launch was busy when requested. This request is not queued; retry explicitly when the launch slot is free.", native::display(path.as_os_str())));
         }
         if let Some(report) = &self.launcher.report {
             match &report.result {
                 Ok(()) => {
-                    ui.label(format!("Windows accepted the launch of {}. External application completion is not monitored.", report.path.display()));
+                    ui.label(format!("Windows accepted the launch of {}. External application completion is not monitored.", native::display(report.path.as_os_str())));
                 }
                 Err(error) => {
-                    ui.colored_label(egui::Color32::from_rgb(255, 180, 130), format!("Could not launch {}: {}. Browsing location, history and selection retained.", report.path.display(), error));
+                    ui.colored_label(egui::Color32::from_rgb(255, 180, 130), format!("Could not launch {}: {}. Browsing location, history and selection retained.", native::display(report.path.as_os_str()), error));
                 }
             }
         }
@@ -260,7 +280,7 @@ impl Explorer {
                 ui.spinner();
                 ui.label(format!(
                     "Opening {}… {} entries so far; previous location retained until success.",
-                    path.display(),
+                    native::display(path.as_os_str()),
                     self.navigation.pending_count()
                 ));
             });
@@ -270,7 +290,7 @@ impl Explorer {
                 egui::Color32::from_rgb(255, 180, 130),
                 format!(
                     "Could not open {}: {} — {}",
-                    path.display(),
+                    native::display(path.as_os_str()),
                     failure.kind.label(),
                     failure.detail
                 ),
@@ -280,7 +300,7 @@ impl Explorer {
         if !self.navigation.projection_fresh() {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Updating filter/sort… previous rows are not interactive.");
+                ui.label("Updating filter/sort/visibility… previous rows are not interactive.");
             });
         }
         let directory = self.navigation.visible();
@@ -302,7 +322,7 @@ impl Explorer {
                 ui.colored_label(egui::Color32::from_rgb(255, 180, 130), failure.kind.label());
                 ui.label(format!(
                     "Read {}: {}",
-                    directory.location.display(),
+                    native::display(directory.location.as_os_str()),
                     failure.detail
                 ));
                 if !directory.raw_entries.is_empty() {
@@ -323,11 +343,18 @@ impl Explorer {
                 }
             ));
             if matches!(directory.status, Status::Ready)
+                && self.navigation.filter.is_empty()
+                && !directory.raw_entries.is_empty()
+                && directory.entries.is_empty()
+            {
+                ui.label("All entries are hidden/system. Enable Show hidden/system entries to view them.");
+            }
+            if matches!(directory.status, Status::Ready)
                 && !self.navigation.filter.is_empty()
                 && !directory.raw_entries.is_empty()
                 && directory.entries.is_empty()
             {
-                ui.label("No names match this filter. Clear or edit the filter to show entries.");
+                ui.label("No names match the current filter/visibility settings. Clear or edit the filter, or show hidden/system entries.");
             }
         }
         if directory.metadata_errors > 0 {
@@ -350,7 +377,7 @@ impl Explorer {
                 } else if self.navigation.pending_location().is_some() {
                     " (selection paused until destination opens)"
                 } else if !self.navigation.projection_fresh() {
-                    " (selection paused while filter/sort updates)"
+                    " (selection paused while filter/sort/visibility updates)"
                 } else {
                     " (selection paused: filtered listing is loading or incomplete; refresh to retry)"
                 }
@@ -440,7 +467,9 @@ impl Explorer {
                             destination = capture_activation(&self.navigation, &entry.path, editing);
                         }
                         response.on_hover_ui(|ui| {
-                            ui.label(entry.path.to_string_lossy());
+                            ui.label(native::display(entry.path.as_os_str()));
+                            if entry.hidden { ui.label("Hidden attribute"); }
+                            if entry.system { ui.label("System attribute"); }
                             if entry.kind == EntryKind::Folder { ui.label("Double-click or make active and press Enter to open folder."); }
                             if entry.kind == EntryKind::File { ui.label("Double-click or make active and press Enter to open in the Windows default application. External apps may edit files."); }
                             if let Some(error) = &entry.metadata_error { ui.label(error); }
@@ -901,6 +930,8 @@ mod tests {
             modified_time: None,
             size: Some(0),
             metadata_error: None,
+            hidden: false,
+            system: false,
         });
         let mut navigation = Navigation::new(PathBuf::from("root"));
         navigation.current.entries = Arc::new(vec![file]);
@@ -927,6 +958,8 @@ mod tests {
             modified_time: None,
             size: Some(0),
             metadata_error: None,
+            hidden: false,
+            system: false,
         });
         app.navigation.current.entries = Arc::new(vec![file.clone()]);
         app.navigation
@@ -1082,6 +1115,8 @@ mod tests {
             modified_time: None,
             size: Some(0),
             metadata_error: None,
+            hidden: false,
+            system: false,
         });
         app.navigation.current.entries = Arc::new(vec![row]);
         app.navigation
@@ -1227,6 +1262,7 @@ mod tests {
                 requested_sort: None,
                 location_text: "root".into(),
                 location_editor_focused: false,
+                location_error: None,
                 filter_text: String::new(),
                 row_scroll_offset: 0.0,
                 row_viewport_height: 0.0,
@@ -1303,6 +1339,7 @@ mod tests {
             requested_sort: None,
             location_text: "root".into(),
             location_editor_focused: false,
+            location_error: None,
             filter_text: String::new(),
             row_scroll_offset: 0.0,
             row_viewport_height: 0.0,
@@ -1311,7 +1348,7 @@ mod tests {
         let mut rows = selection::tests::rows(&["alpha", "beta", "alpine"]);
         for row in Arc::get_mut(&mut rows).unwrap() {
             let row = Arc::get_mut(row).unwrap();
-            row.name = row.path.to_string_lossy().into_owned();
+            row.name = native::display(row.path.as_os_str());
         }
         app.navigation.current.raw_entries = rows;
         app.navigation.current.status = Status::Ready;
@@ -1325,6 +1362,150 @@ mod tests {
             app.navigation.visible().raw_entries.clone(),
             &app.navigation.filter
         )));
+    }
+
+    #[test]
+    fn s006_visibility_control_updates_freshness_without_navigation_at_narrow_viewport() {
+        let context = egui::Context::default();
+        let mut app = filter_app();
+        let location = app.navigation.current.location.clone();
+        let before = app.navigation.key();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(480.0, 280.0));
+        let output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| {
+                app.toolbar(ui);
+            },
+        );
+        let toggle = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "Show hidden/system entries" => {
+                    Some(text.pos + text.galley.size() / 2.0)
+                }
+                _ => None,
+            })
+            .expect("explicit visibility control");
+        assert!(screen.contains(toggle));
+        output.drop_without_applying_deltas();
+        for pressed in [true, false] {
+            context
+                .run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        events: vec![
+                            egui::Event::PointerMoved(toggle),
+                            egui::Event::PointerButton {
+                                pos: toggle,
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                modifiers: egui::Modifiers::NONE,
+                            },
+                        ],
+                        ..Default::default()
+                    },
+                    |ui| {
+                        app.toolbar(ui);
+                    },
+                )
+                .drop_without_applying_deltas();
+        }
+        assert!(app.navigation.show_hidden_system);
+        assert_ne!(app.navigation.key(), before);
+        assert!(!app.navigation.rows_selectable());
+        accept_app_filter(&mut app);
+        assert!(app.navigation.rows_selectable());
+        assert_eq!(app.navigation.current.location, location);
+        assert!(app.navigation.back.is_empty() && app.navigation.forward.is_empty());
+        let mut hidden = selection::tests::rows(&["hidden"]);
+        Arc::get_mut(&mut Arc::get_mut(&mut hidden).unwrap()[0])
+            .unwrap()
+            .hidden = true;
+        app.navigation.current.raw_entries = hidden;
+        app.navigation.set_show_hidden_system(false);
+        accept_app_filter(&mut app);
+        let output = context.run_ui(egui::RawInput::default(), |ui| app.status(ui));
+        let text = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.job.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            text.contains("All entries are hidden/system")
+                && text.contains("0 / 1 entries displayed")
+        );
+        assert!(!text.contains("Empty folder"));
+        output.drop_without_applying_deltas();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn s006_path_submission_reports_ambiguous_drive_relative_without_navigation() {
+        let context = egui::Context::default();
+        let mut app = filter_app();
+        app.location_text = "C:relative".into();
+        let before = app.navigation.key();
+        app.navigation
+            .selection
+            .select_all(&app.navigation.current.entries);
+        let selected = app.navigation.selection.paths.clone();
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            app.toolbar(ui);
+        });
+        let go = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "Go" => {
+                    Some(text.pos + text.galley.size() / 2.0)
+                }
+                _ => None,
+            })
+            .unwrap();
+        output.drop_without_applying_deltas();
+        for pressed in [true, false] {
+            context
+                .run_ui(
+                    egui::RawInput {
+                        events: vec![
+                            egui::Event::PointerMoved(go),
+                            egui::Event::PointerButton {
+                                pos: go,
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                modifiers: egui::Modifiers::NONE,
+                            },
+                        ],
+                        ..Default::default()
+                    },
+                    |ui| {
+                        app.toolbar(ui);
+                    },
+                )
+                .drop_without_applying_deltas();
+        }
+        assert!(
+            app.location_error
+                .as_ref()
+                .unwrap()
+                .contains("Drive-relative")
+        );
+        assert_eq!(app.navigation.key(), before);
+        assert_eq!(app.navigation.selection.paths, selected);
+        assert!(app.navigation.pending_location().is_none());
+        let output = context.run_ui(egui::RawInput::default(), |ui| app.status(ui));
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("Edit the path and Go to retry"))));
+        output.drop_without_applying_deltas();
+        app.navigate(app.navigation.current.location.clone(), Intent::Refresh);
+        assert!(app.location_error.is_none());
     }
 
     #[test]
@@ -1580,7 +1761,7 @@ mod tests {
         app.navigation.set_filter("zz".into());
         let pending = status_text(&app);
         assert!(
-            pending.contains("Updating filter/sort"),
+            pending.contains("Updating filter/sort/visibility"),
             "pending text: {pending:?}"
         );
         assert!(!pending.contains("No names match") && !pending.contains("entries displayed"));
@@ -1648,12 +1829,7 @@ impl eframe::App for Explorer {
             committed |= self.navigation.apply(response);
         });
         if committed && !self.location_editor_focused {
-            self.location_text = self
-                .navigation
-                .current
-                .location
-                .to_string_lossy()
-                .into_owned();
+            self.location_text = native::display(self.navigation.current.location.as_os_str());
         }
         self.request_sort();
         if let Some(sorted) = self.sorter.take() {

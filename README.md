@@ -1,6 +1,6 @@
 # Mado Explorer
 
-S005: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S006: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
@@ -21,7 +21,10 @@ selection, filtering, refresh and browsing never automatically launch a file.
 Alt+Left/Right/Up navigate; Refresh/F5 reloads. These shortcuts are suspended while
 the path or filter editor has focus (including its submitting frame). Relative typed
 paths resolve against the **committed** location, including when a new destination
-is still loading. Breadcrumbs identify
+is still loading. Ambiguous drive-relative input (`C:folder` or `C:`) is rejected
+with recovery feedback; use `C:\folder` or an ordinary relative path instead.
+Absolute drive/UNC and native verbatim long-path prefixes are retained. Device
+namespaces are not supported as typed browsing destinations. Breadcrumbs identify
 that committed location; an explicit Opening message identifies the pending
 listing shown progressively below it. A new location/history commits only when
 its enumeration succeeds. A failed destination restores the previous listing and
@@ -55,7 +58,7 @@ retry/navigation/filter editing rather than commands on uncertain rows.
 
 Matching uses stdlib Unicode lowercase, not locale-aware full case folding or
 Unicode normalization; query whitespace is literal. Non-Unicode names match their
-lossy displayed name, while selection/activation continue to use native paths.
+escaped diagnostic display, while selection/activation continue to use native paths.
 No fuzzy dependency, index, debounce machinery or result-count cap is introduced.
 
 Click anywhere in a row to select it. Ctrl+click toggles a path; Shift+click replaces
@@ -73,8 +76,9 @@ repeat file launches.
 
 Refresh retains selection/active/anchor during empty or progressive snapshots and
 failed reads. Only a successfully completed listing removes vanished paths; surviving
-paths remain selected. Fresh completed filter projections deselect hidden native
-paths and remove hidden active/anchor identities. Still-visible selections survive filter/sort/refresh changes;
+paths remain selected. Fresh completed filter/visibility projections deselect hidden
+native paths and remove hidden active/anchor identities. Still-visible selections
+survive filter/sort/refresh changes;
 clearing never resurrects hidden prior selections. Ctrl+A selects visible entries only.
 Progressive snapshots do not prove that a selected path disappeared. Future file
 commands must share `Navigation::rows_selectable` and capture only fresh visible
@@ -95,10 +99,27 @@ generation/revision key, rather than retaining row indices across sorting.
 No previews, settings, tabs/splits or mutation commands are implemented.
 The explorer itself remains read-only, but **externally launched applications may
 edit their files or execute code**; open only files you intend to open.
-Hidden entries are included. Paths used for folder/file activation, row identity,
-breadcrumbs and history stay native/lossless;
-display/path-editor text is lossy for non-Unicode names. Submitting the unchanged
-displayed current path retains its native path instead of reparsing lossy text.
+Hidden and system entries are **hidden by default**. The explicit **Show
+hidden/system entries** checkbox shows both attribute categories together, including
+folders, in the immediate listing. It is retained through navigation/refresh in the
+current browsing context and is not persisted across restarts. Attributes are read
+with non-following metadata on enumeration workers; visibility changes reuse the
+projection worker without re-enumeration. Counts include hidden entries in the total;
+an all-hidden folder is distinct from an empty folder. Attribute/metadata failures
+remain visible as unknown rows with an error rather than silently disappearing.
+A visibility change pauses row commands only until a fresh projection arrives;
+empty-query progressive browsing is still interactive. Incomplete/failed projections
+do not deselect absent paths; only successful complete projections are authoritative.
+Show never resurrects selections previously hidden by a complete projection.
+
+Paths used for folder/file activation, row identity, breadcrumbs and history stay
+native/lossless. Valid Unicode display text is unchanged, including a literal `�`.
+Malformed UTF-16 uses a marked `[non-Unicode: ...]` diagnostic with escaped units
+(such as `\u{D800}`), not replacement-character text. This is diagnostic display,
+not an editable path serialization: submitting the unchanged current diagnostic
+retains its native path; edited diagnostic input is rejected with recovery guidance.
+Use rows/breadcrumbs/Up or enter a Unicode folder path instead. No display text is
+used as a row action source; long/UNC prefixes remain native.
 
 The table shows immediate entries only, modification timestamps in UTC, and
 regular-file sizes in bytes. `—` means unknown/not applicable, never zero folder
@@ -140,10 +161,11 @@ A separate projection/sorting worker has one active projection, one coalesced pe
 request and one result slot. Query normalization, name matching, entry-vector building,
 sorting and visible-path-set building happen on that worker, not in UI update.
 Projection results must match the visible listing's generation, data/completion
-revision, query revision and sort choice. Returning quickly to the same query text
-still creates a newer query revision. Completion increments data revision so a
+revision, query revision, visibility choice/revision and sort choice. Returning
+quickly to the same query text still creates a newer query revision. Completion increments data revision so a
 progressive projection cannot masquerade as authoritative final data. While updating,
-the previous projection can stay visible with an Updating filter/sort indicator.
+the previous projection can stay visible with an Updating filter/sort/visibility
+indicator.
 Rows remain virtualized. Loaded listings and their snapshot vectors are not size-capped; no memory/performance acceptance claim has
 been made.
 
@@ -213,6 +235,17 @@ Use only disposable folders containing child folders and small files:
     it must not navigate back or change that selection. Recheck path/filter editor
     focus and submission, pending navigation and stale filter/sort rows: no launch.
     These real-association GUI checks are pending, not covered by callback tests.
+11. In a generated fixture with hidden/system files and folders, check the checkbox,
+    counts and all-hidden state. Select hidden rows while shown, hide them, then show:
+    completed projections remove hidden selection/active/anchor without resurrecting
+    them. Toggle during refresh/filtering and verify stale rows cannot activate, while
+    navigation/retry/filter/toggle remain usable. Check Unicode/supplementary glyphs,
+    a verbatim path over 260 UTF-16 units and escaped malformed-name diagnostics.
+    Submit the unchanged malformed current-path display and verify native identity;
+    edit the diagnostic and verify rejection. Type `C:relative` and verify explanatory
+    rejection without history/selection changes; ordinary relative paths still use
+    the committed location. GUI glyph/scaling and actual long-path associations remain
+    pending; automated Windows fixtures establish enumeration/native identity only.
 
 GUI appearance/interaction, display scaling and Windows Narrator checks still
 require manual verification. S001's process-level startup/close smoke created the
@@ -225,6 +258,11 @@ fresh count/no-match display and real headless filter-editor ownership checks.
 S005 adds native UTF-16/argument validation, fresh file/folder activation routing,
 headless double-click/Enter guards, bounded injected launch/failure capture, and
 late-result browsing preservation. Automated launch tests never execute documents
-or programs and never alter file associations; missing-file preflight returns before
-calling the shell. These are not a foreground-capture or interactive GUI acceptance claim.
+or programs and never alter file associations. S006 adds nine focused checks for
+owned hidden/system attributes, visibility revisions/selection/progressive guards,
+checkbox wiring, Unicode/malformed display identity, actual disposable malformed and
+verbatim long-path enumeration, and typed-path rejection/recovery. These fixtures
+passed on this Windows environment without ignored/unsupported cases; they do not
+establish support on every filesystem or network provider. Missing-file preflight
+returns before calling the shell. These are not a foreground-capture or interactive GUI acceptance claim.
 No destructive operations or personal-folder checks are needed for this slice.
