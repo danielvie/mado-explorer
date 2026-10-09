@@ -1,0 +1,33 @@
+version: '3'
+
+vars:
+  MANIFEST: components/pdf-preview/Cargo.toml
+  TARGET: target/p03
+
+tasks:
+  default:
+    desc: List PDF backend tasks
+    dir: '{{.ROOT_DIR}}/../..'
+    cmds:
+      - task --taskfile components/pdf-preview/Taskfile.yml --list
+  run:
+    desc: Run generated native PDF probe; requires absolute PDFIUM_LIBRARY_PATH
+    dir: '{{.ROOT_DIR}}/../..'
+    cmds:
+      - cargo test --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}} --test backend native_fixture_probe -- --ignored --nocapture
+  test:
+    desc: Test PDF request/read limits and missing-library fallback; native probe remains opt-in
+    dir: '{{.ROOT_DIR}}/../..'
+    cmds:
+      - cargo test --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}}
+  check:
+    desc: Check formatting and compile the PDF backend
+    dir: '{{.ROOT_DIR}}/../..'
+    cmds:
+      - cargo fmt --manifest-path {{.MANIFEST}} -- --check
+      - cargo check --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}}
+  clean:
+    desc: Remove only PDF component build output under target/p03
+    dir: '{{.ROOT_DIR}}/../..'
+    cmds:
+      - cargo clean --manifest-path {{.MANIFEST}} --target-dir {{.TARGET}}
