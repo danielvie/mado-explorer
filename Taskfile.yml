@@ -7,7 +7,7 @@ tasks:
       - task --list
 
   run:
-    desc: Launch the read-only Rust explorer (optionally pass a folder after --)
+    desc: Launch the Rust explorer (optionally pass a folder after --)
     cmds:
       - cargo run -- {{.CLI_ARGS}}
 

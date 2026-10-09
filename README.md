@@ -1,11 +1,11 @@
 # Mado Explorer
 
-S010: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S011: a Windows-first directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
 ```sh
-task run                         # browse the working directory
+task run                         # restore workspace, or browse working directory
 task run -- "C:\path\to\folder"   # or: cargo run -- "C:\path\to\folder"
 task test                        # portable default checks; disposable fixtures
 task test:fonts                  # explicit Windows reference-host font coverage
@@ -22,7 +22,8 @@ the last tab of a non-final pane closes that pane and expands its sibling. Closi
 the final window tab creates
 a fresh tab at the user's home location; it does not close the window. Home is
 resolved once at startup, and missing/unreadable home contents use normal browsing
-error/retry handling. Tabs do not persist across restarts.
+error/retry handling. Reviewed workspace settings save and restore tabs,
+panes, bookmarks and recents across restarts, as described below.
 
 Every tab owns location/history, native-path selection/active row/range anchor,
 filter, sort, hidden/system visibility, path-editor draft/errors and scroll position.
@@ -183,8 +184,8 @@ not been performance-verified. If measured input latency exceeds its budget, bui
 native path-to-index projection on the sorting worker and publish it with the existing
 generation/revision key, rather than retaining row indices across sorting.
 
-No previews, settings persistence or mutation commands are implemented.
-The explorer itself remains read-only, but **externally launched applications may
+No preview or file-mutation commands are enabled. Workspace settings save and
+restore are implemented. Browsing never modifies source files, but **externally launched applications may
 edit their files or execute code**; open only files you intend to open.
 Hidden and system entries are **hidden by default**. The explicit **Show
 hidden/system entries** checkbox shows both attribute categories together, including
@@ -535,9 +536,10 @@ path serialization; use selected native results for non-Unicode child folders.
   entry mode. It replaces the results with immediate non-link folder children and
   clears the query for further fuzzy narrowing. Repeated Tab expands a selected
   child; the underlying tab has not navigated. Known locations returns to inventory.
-- Bookmark/Unbookmark and Forget recent are explicitly labelled **session** controls.
-  At most 128 bookmarks and 128 newest recents are retained; adding a bookmark when
-  full is visibly refused. Nothing is saved to disk; these lists do not survive restart.
+- Bookmark/Unbookmark and Forget recent manage up to 128 bookmarks and 128 newest
+  recents. Adding a bookmark when full is visibly refused. Existing settings restore
+  these lists; new changes remain session-only while production writes are gated.
+  The finder and window visibly disclose that gate.
 
 Actions perform a worker-side native normalization, folder-type and enumeration-
 access probe. Missing, nonfolder, denied, unsupported and ordinary OS errors identify
@@ -594,7 +596,9 @@ refusal, pointer-before-Ctrl+O target capture, and a focused AccessKit text-inpu
 The accessibility probe checks emitted metadata, not native Narrator output.
 Native redirected places, unavailable/slow storage providers, real ACL denial,
 interactive keyboard/pointer/clipboard, scaling and Narrator remain manual pending.
-Restart persistence (F05.6/F13.4-F13.5) is the next independent settings-write slice.
+S011 implements reviewed save/restore for F05.6/F13.4-F13.5. Disposable native
+final-save, normal/minimized-close and application-written-settings restart checks pass.
+Narrator, mixed-DPI and disconnected-monitor checks remain pending.
 
 15. Using only disposable folders, open Ctrl+O from each pane with different active
     tabs/filters/selections; verify the captured base and exclusive input. Try fuzzy
@@ -606,5 +610,57 @@ Restart persistence (F05.6/F13.4-F13.5) is the next independent settings-write s
     acceptance until reopened. Escape/Close must not navigate or leak Ctrl+T/F6/row
     input. Check the actual redirected common places and logical roots without
     modifying personal entries. Bookmark/unbookmark/forget fixture locations and
-    restart: session-only lists should reset. Check narrow/short windows, 100/150/200%
+    restart: changes survive when saving is available; corrupt settings remain untouched.
+    Check narrow/short windows, 100/150/200%
     scaling and Narrator; these native/manual checks are not yet claimed as passed.
+
+## Workspace settings
+
+Production settings writes are enabled after independent backend and override-guard
+safety reviews. Fourteen focused regressions cover schema/native paths, corrupt-file
+preservation, atomic failure handling, coalescing and close behavior. Native checks
+use generated disposable settings only; no personal settings or clipboard were accessed.
+
+Startup reads `workspace.json` under the Windows LocalAppData known folder's
+`Mado Explorer` directory. For disposable native checks or a separate settings
+location, set `MADO_SETTINGS_PATH` to an absolute native path ending in
+`workspace.json`. Invalid overrides visibly disable saving and never fall back to
+personal settings. Named-pipe/device namespaces and ambiguous UNC prefix names are
+refused before settings file access. Ordinary filesystem UNC paths remain supported.
+Reads and serialization are capped at 2 MiB. Version 1
+uses explicit serde JSON fields and native UTF-16 unit arrays on Windows, including
+unpaired surrogates. Display strings never encode action paths. Validation bounds
+64 panes, 256 total tabs, split depth 16, active/focus indices, tree membership,
+ratios, geometry, native path lengths and 128 entries per catalogue list.
+
+Saved fields are normal window bounds/maximized state, split tree/ratios, all tabs'
+committed locations, active tabs, focused pane, bookmarks and recents. History,
+selection, filters, scroll, drafts, clipboard and operations are not saved.
+Unavailable folders use ordinary loading/error/Up handling. An explicit startup
+folder replaces only the restored focused active tab's committed location. Without
+an argument the workspace restores; without valid settings startup uses cwd.
+
+Invalid, oversized, version-invalid or unreadable settings produce defaults and a
+visible warning. The original is untouched and its save path stays disabled for
+that session. Repair the file and restart to re-enable saving.
+No backups or unrelated temps are deleted.
+
+One fixed settings worker has one coalesced pending snapshot
+and one report. Changes schedule a save after 500 ms; filesystem work and bounded
+serialization run off the UI. A failure pauses saves until explicit Retry and
+shows its error plus the full recovery-temp path on hover if cleanup failed.
+The writer reserves a unique same-directory `create_new` temp, writes, flushes,
+syncs, checks native close, then uses `MoveFileExW` replacement with write-through.
+It never deletes the old settings before replacement.
+
+Close freezes workspace handlers and waits for the latest snapshot. Failure or
+unavailable saving offers Keep browsing, Retry save and close where available,
+or explicit Close without saving. `on_exit` joins the worker rather than detaching
+a last save; an unexpected final failure gets a native warning. An uninterruptible
+filesystem call can delay final exit. Eframe's persistence feature/save hook is
+not used. Monitor bounds from winit recover disconnected/offscreen positions;
+physical outer position and logical normal inner size are retained. Disposable
+native maximize/restore/minimized-close, final save and saved-workspace restart
+checks pass. Mixed-DPI, disconnected monitors, Narrator and native save-error/retry
+interaction remain pending. Run the owned-fixture smoke with
+`pwsh -NoProfile -File handoff/s011-native-smoke.ps1 -ExpectWrites -MinimizedClose`.

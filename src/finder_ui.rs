@@ -261,7 +261,10 @@ impl Explorer {
             egui::ScrollArea::vertical().id_salt("finder-body").max_height((ctx.content_rect().height() - 48.0).max(160.0)).show(ui, |ui| {
             ui.heading("Folder finder");
             ui.label(format!("Captured base: {}", native::display(modal.target.base.as_os_str())));
-            ui.label("Known locations and explicit children only. Bookmarks/recents: session only.");
+            ui.label("Known locations and explicit children only.");
+            if let Some(reason) = &self.persistence.disabled { ui.label(reason); }
+            else if self.persistence.path.is_none() { ui.label("Bookmarks/recents: session only; no settings path."); }
+            else { ui.label("Bookmarks and recents are included in workspace settings."); }
             let input = ui.add(egui::TextEdit::singleline(&mut modal.query).id(egui::Id::new("finder-input")).lock_focus(true).desired_width(f32::INFINITY).hint_text("Fuzzy terms, or enable Path entry"));
             if modal.focus_input { input.request_focus(); modal.focus_input = false; }
             changed |= input.changed();
@@ -301,8 +304,8 @@ impl Explorer {
             if let Some(path) = modal.selected_path().filter(|_| !modal.pending && !modal.path_mode) {
                 ui.horizontal(|ui| {
                     let marked = self.locations.bookmarks.iter().any(|item| item.path == path);
-                    if ui.button(if marked { "Unbookmark (session)" } else { "Bookmark (session)" }).clicked() { bookmark = Some(path.clone()); }
-                    if ui.add_enabled(self.locations.recents.iter().any(|item| item.path == path), egui::Button::new("Forget recent (session)")).clicked() { forget = Some(path); }
+                    if ui.button(if marked { "Unbookmark" } else { "Bookmark" }).clicked() { bookmark = Some(path.clone()); }
+                    if ui.add_enabled(self.locations.recents.iter().any(|item| item.path == path), egui::Button::new("Forget recent")).clicked() { forget = Some(path); }
                 });
             }
             });

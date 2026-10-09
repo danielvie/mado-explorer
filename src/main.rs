@@ -11,6 +11,8 @@ mod open;
 mod pane_tests;
 mod panes;
 mod selection;
+mod settings;
+mod settings_workspace;
 mod sorting;
 mod tab_drag;
 #[cfg(test)]
@@ -31,23 +33,41 @@ use std::{path::PathBuf, sync::Arc};
 use tabs::{Tab, TabId};
 
 fn main() -> eframe::Result {
-    let location = std::env::args_os()
+    let startup_location = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
+        .map(|p| std::path::absolute(&p).unwrap_or(p));
+    let location = startup_location
+        .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let location = std::path::absolute(&location).unwrap_or(location);
+    let (persistence, snapshot) = settings_workspace::Persistence::startup();
     let fonts = font_fallback::load_installed();
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1050.0, 700.0])
+            .with_inner_size(persistence.geometry.size)
             .with_min_inner_size([480.0, 280.0]),
         ..Default::default()
     };
     eframe::run_native(
         "Mado Explorer",
         options,
-        Box::new(move |cc| Ok(Box::new(Explorer::new(cc, location, fonts)?))),
+        Box::new(move |cc| {
+            settings_workspace::restore_geometry(cc, &persistence.geometry);
+            let mut app = Explorer::new(cc, location, fonts)?;
+            app.persistence = persistence;
+            if let Some(snapshot) = snapshot {
+                app.restore_snapshot(snapshot, startup_location)
+                    .map_err(std::io::Error::other)?;
+                for pane in 0..app.panes.len() {
+                    app.refresh_tab_in(pane);
+                }
+            }
+            let context = cc.egui_ctx.clone();
+            app.persistence
+                .start_worker(Arc::new(move || context.request_repaint()));
+            Ok(Box::new(app))
+        }),
     )
 }
 
@@ -71,6 +91,7 @@ struct Explorer {
     finder_service: finder::Service,
     finder: Option<finder::Modal>,
     locations: finder::Catalogue,
+    persistence: settings_workspace::Persistence,
 }
 
 impl Explorer {
@@ -125,6 +146,7 @@ impl Explorer {
             finder_service,
             finder: None,
             locations: finder::Catalogue::default(),
+            persistence: settings_workspace::Persistence::default(),
         };
         app.navigate(location, Intent::Refresh);
         Ok(app)
@@ -1462,6 +1484,7 @@ mod tests {
                 .unwrap(),
             finder: None,
             locations: finder::Catalogue::default(),
+            persistence: settings_workspace::Persistence::default(),
         }
     }
 
@@ -1982,18 +2005,23 @@ mod tests {
 }
 
 impl eframe::App for Explorer {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.launcher.poll();
         // The completion repaint can arrive just before the thread fully exits.
         if self.launcher.busy_path().is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
-        if self.poll_directory() {
+        if !self.persistence.is_closing() && self.poll_directory() {
             ctx.request_repaint();
         }
+        self.persistence_logic(ctx, frame);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ui, |ui| self.finder_workspace(ui));
+        egui::CentralPanel::default().show(ui, |ui| self.persistence_ui(ui));
+    }
+
+    fn on_exit(&mut self) {
+        self.persistence_exit();
     }
 }
