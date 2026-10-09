@@ -104,7 +104,7 @@ impl Navigation {
         self.active_generation = generation;
         self.error = None;
         self.pending = None;
-        if intent == Intent::Refresh || location == self.current.location {
+        if intent == Intent::Refresh || location.as_os_str() == self.current.location.as_os_str() {
             self.current.begin(location, generation);
             self.sorted_key = None;
         } else {
@@ -155,6 +155,14 @@ impl Navigation {
             let pending = self.pending.take().unwrap();
             match pending.directory.status {
                 Status::Ready => {
+                    if pending.directory.location == self.current.location {
+                        // A successfully loaded alias is a refresh, not a new
+                        // history branch. Reconcile only now, never on absence
+                        // in a progressive/failed alias listing.
+                        self.selection.reconcile(&pending.directory.raw_entries);
+                        self.current = pending.directory;
+                        return true;
+                    }
                     match pending.intent {
                         Intent::New => {
                             self.back.push(self.current.location.clone());
@@ -183,7 +191,7 @@ impl Navigation {
             if response.generation != self.current.generation {
                 return false;
             }
-            let success = matches!(response.update, Update::Finished(Ok(())));
+            let success = matches!(response.update, Update::Finished(Ok(_)));
             self.current.apply(response);
             if success {
                 self.selection.reconcile(&self.current.raw_entries);
@@ -256,7 +264,7 @@ mod tests {
         nav.apply(Response {
             generation,
             update: Update::Finished(if success {
-                Ok(())
+                Ok(nav.visible().location.clone())
             } else {
                 Err(Failure {
                     kind: FailureKind::Missing,
@@ -733,6 +741,77 @@ mod tests {
         assert_eq!(
             nav.resolve(r"actual-�").unwrap(),
             nav.current.location.join("actual-�")
+        );
+    }
+
+    #[test]
+    fn s006b_normalized_completion_is_transactional_and_generation_guarded() {
+        let mut nav = ready();
+        let location = nav.current.location.clone();
+        let data = crate::selection::tests::rows(&["root/a/keep"]);
+        nav.current.raw_entries = data.clone();
+        nav.apply_sorted(Sorted::for_test(nav.key(), data.clone()));
+        nav.selection.select_all(&data);
+        nav.forward.push(PathBuf::from("root/b"));
+        let selection = nav.selection.paths.clone();
+        let retained = nav.current.entries.clone();
+        nav.begin(location.join("."), 2, Intent::New);
+        assert!(nav.pending_location().is_some());
+        assert_eq!(nav.current.location.as_os_str(), location.as_os_str());
+        assert!(!finish(&mut nav, 2, false));
+        assert!(Arc::ptr_eq(&retained, &nav.current.entries));
+        assert_eq!(nav.selection.paths, selection);
+        assert!(nav.back.is_empty());
+        assert_eq!(nav.forward, [PathBuf::from("root/b")]);
+
+        nav.begin(location.join("child").join(".."), 3, Intent::New);
+        assert!(!nav.apply(Response {
+            generation: 2,
+            update: Update::Finished(Ok(PathBuf::from("wrong/stale-normalization")))
+        }));
+        assert_eq!(nav.current.location, location);
+        assert!(nav.error.is_none());
+        nav.apply(Response {
+            generation: 3,
+            update: Update::Snapshot {
+                entries: data.clone(),
+                metadata_errors: 0,
+            },
+        });
+        assert_eq!(nav.selection.paths, selection);
+        assert!(nav.apply(Response {
+            generation: 3,
+            update: Update::Finished(Ok(location.clone()))
+        }));
+        assert!(nav.back.is_empty());
+        assert_eq!(nav.forward, [PathBuf::from("root/b")]);
+        assert_eq!(nav.selection.paths, selection);
+        assert_eq!(nav.selection.active, Some(PathBuf::from("root/a/keep")));
+        assert_eq!(nav.selection.anchor, nav.selection.active);
+        assert!(nav.apply_sorted(Sorted::for_test(nav.key(), data)));
+        assert!(nav.rows_selectable());
+
+        nav.begin(location.join("..").join("b"), 4, Intent::New);
+        assert_eq!(nav.current.location, location);
+        assert!(nav.back.is_empty());
+        let b = PathBuf::from("root/b");
+        nav.apply(Response {
+            generation: 4,
+            update: Update::Snapshot {
+                entries: crate::selection::tests::rows(&["root/b/new"]),
+                metadata_errors: 0,
+            },
+        });
+        assert!(nav.apply(Response {
+            generation: 4,
+            update: Update::Finished(Ok(b.clone()))
+        }));
+        assert_eq!(nav.current.location, b);
+        assert_eq!(nav.back, [location]);
+        assert!(nav.forward.is_empty() && nav.selection.paths.is_empty());
+        assert_eq!(
+            nav.current.raw_entries[0].path.parent(),
+            Some(nav.current.location.as_path())
         );
     }
 

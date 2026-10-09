@@ -1156,7 +1156,7 @@ mod tests {
             .begin(PathBuf::from("later-location"), 9, Intent::New);
         app.navigation.apply(directory::Response {
             generation: 9,
-            update: directory::Update::Finished(Ok(())),
+            update: directory::Update::Finished(Ok(PathBuf::from("later-location"))),
         });
         let history = (
             app.navigation.current.location.clone(),

@@ -224,7 +224,7 @@ pub enum Update {
         entries: Arc<Vec<Arc<Entry>>>,
         metadata_errors: usize,
     },
-    Finished(Result<(), Failure>),
+    Finished(Result<PathBuf, Failure>),
 }
 
 #[derive(Debug)]
@@ -291,7 +291,10 @@ impl DirectoryState {
                 // Completion needs its own projection: progressive rows cannot prune selection.
                 self.revision += 1;
                 self.status = match result {
-                    Ok(()) => Status::Ready,
+                    Ok(location) => {
+                        self.location = location;
+                        Status::Ready
+                    }
                     Err(failure) => Status::Failed(failure),
                 };
             }
@@ -469,9 +472,38 @@ fn send_response(
     }
 }
 
+// Windows normalization stays on enumeration workers and never resolves link
+// targets or switches an ordinary path to canonicalize's extended namespace.
+fn normalize_destination(path: &Path) -> io::Result<PathBuf> {
+    #[cfg(windows)]
+    {
+        let location = std::path::absolute(path)?;
+        if !location.is_absolute()
+            || location.components().any(|component| {
+                matches!(
+                    component,
+                    std::path::Component::CurDir | std::path::Component::ParentDir
+                )
+            })
+        {
+            // Windows leaves verbatim dot components unchanged; opening them is
+            // not equivalent to stripping them (and can fail with ERROR_INVALID_NAME).
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Cannot safely normalize this destination. Use a full filesystem path without verbatim dot components, or navigate with Up/breadcrumbs.",
+            ));
+        }
+        Ok(location)
+    }
+    #[cfg(not(windows))]
+    {
+        fs::canonicalize(path)
+    }
+}
+
 enum EnumerationUpdate {
     Batch(Vec<Entry>),
-    Finished(Result<(), Failure>),
+    Finished(Result<PathBuf, Failure>),
 }
 
 fn enumerate(
@@ -482,7 +514,21 @@ fn enumerate(
     if cancelled() {
         return;
     }
-    let mut directory = match fs::read_dir(path) {
+    let location = match normalize_destination(path) {
+        Ok(location) => location,
+        Err(error) => {
+            if !cancelled() {
+                emit(EnumerationUpdate::Finished(Err(Failure::opening(
+                    path, error,
+                ))));
+            }
+            return;
+        }
+    };
+    if cancelled() {
+        return;
+    }
+    let mut directory = match fs::read_dir(&location) {
         Ok(directory) => directory,
         Err(error) => {
             if !cancelled() {
@@ -532,7 +578,7 @@ fn enumerate(
         return;
     }
     if !cancelled() {
-        emit(EnumerationUpdate::Finished(Ok(())));
+        emit(EnumerationUpdate::Finished(Ok(location)));
     }
 }
 
@@ -585,6 +631,192 @@ mod tests {
         state.raw_entries = Arc::new(entries);
         state.entries = state.raw_entries.clone();
         state
+    }
+
+    fn browse(
+        loader: &DirectoryLoader,
+        nav: &mut crate::navigation::Navigation,
+        location: PathBuf,
+        intent: crate::navigation::Intent,
+    ) -> bool {
+        let generation = loader.request(location.clone());
+        nav.begin(location, generation, intent);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut success = None;
+        while success.is_none() {
+            assert!(Instant::now() < deadline, "background navigation timed out");
+            loader.drain(|response| {
+                if response.generation == generation
+                    && let Update::Finished(result) = &response.update
+                {
+                    success = Some(result.is_ok());
+                }
+                nav.apply(response);
+            });
+            thread::sleep(Duration::from_millis(5));
+        }
+        if success == Some(true) {
+            assert!(nav.apply_sorted(crate::sorting::project_for_test(
+                nav.key(),
+                nav.current.raw_entries.clone(),
+                &nav.filter,
+            )));
+        }
+        success.unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn s006b_background_parent_up_absolute_dots_and_same_location_aliases() {
+        use crate::navigation::{Intent, Navigation};
+        let fixture = Fixture::new();
+        let top = fixture.0.join("top");
+        let a = top.join("a");
+        fs::create_dir_all(a.join("child")).unwrap();
+        fs::write(a.join("keep.txt"), b"keep").unwrap();
+        let loader = DirectoryLoader::new(Arc::new(|| {})).unwrap();
+        let mut nav = Navigation::new(a.clone());
+        assert!(browse(&loader, &mut nav, a.clone(), Intent::Refresh));
+        let parent = nav.resolve("..").unwrap();
+        assert!(browse(&loader, &mut nav, parent, Intent::New));
+        assert_eq!(nav.current.location.as_os_str(), top.as_os_str());
+        assert_eq!(nav.up(), Some(fixture.0.clone()));
+        let up = nav.up().unwrap();
+        assert!(browse(&loader, &mut nav, up, Intent::New));
+        assert_eq!(nav.current.location, fixture.0);
+        assert_eq!(nav.back, [a.clone(), top.clone()]);
+        assert!(browse(&loader, &mut nav, top.clone(), Intent::Back));
+        assert!(browse(&loader, &mut nav, a.clone(), Intent::Back));
+        nav.set_filter("keep".into());
+        nav.set_show_hidden_system(true);
+        assert!(nav.apply_sorted(crate::sorting::project_for_test(
+            nav.key(),
+            nav.current.raw_entries.clone(),
+            &nav.filter
+        )));
+        nav.selection.select_all(&nav.current.entries);
+        let selection = nav.selection.paths.clone();
+        let active = nav.selection.active.clone();
+        let anchor = nav.selection.anchor.clone();
+        let history = (nav.back.clone(), nav.forward.clone());
+        for alias in [
+            nav.resolve(".").unwrap(),
+            nav.resolve(r"child\..").unwrap(),
+            top.join(r"a\..\a\."),
+        ] {
+            assert!(browse(&loader, &mut nav, alias, Intent::New));
+            assert_eq!(nav.current.location.as_os_str(), a.as_os_str());
+            assert_eq!((nav.back.clone(), nav.forward.clone()), history);
+            assert_eq!(nav.selection.paths, selection);
+            assert_eq!(nav.selection.active, active);
+            assert_eq!(nav.selection.anchor, anchor);
+            assert_eq!(nav.current.entries[0].path, a.join("keep.txt"));
+            assert_eq!(
+                crate::active_activation(&nav, false),
+                Some(crate::Activation::File(a.join("keep.txt")))
+            );
+        }
+        assert_eq!(nav.filter, "keep");
+        assert!(nav.show_hidden_system);
+        let retained = nav.current.entries.clone();
+        assert!(!browse(&loader, &mut nav, a.join("missing"), Intent::New));
+        assert!(Arc::ptr_eq(&nav.current.entries, &retained));
+        assert_eq!(nav.selection.paths, selection);
+        assert_eq!((nav.back.clone(), nav.forward.clone()), history);
+        assert!(nav.error.is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn s006b_native_prefixes_unicode_and_verbatim_dots_are_not_reinterpreted() {
+        use std::{
+            ffi::OsString,
+            os::windows::ffi::{OsStrExt, OsStringExt},
+        };
+        assert_eq!(
+            normalize_destination(Path::new(r"C:\fixture\a\..\b\.")).unwrap(),
+            PathBuf::from(r"C:\fixture\b")
+        );
+        assert_eq!(
+            normalize_destination(Path::new(r"\\server\share\a\..\b")).unwrap(),
+            PathBuf::from(r"\\server\share\b")
+        );
+        for text in [r"\\?\C:\fixture\folder", r"\\?\UNC\server\share\folder"] {
+            assert_eq!(
+                normalize_destination(Path::new(text)).unwrap().as_os_str(),
+                std::ffi::OsStr::new(text)
+            );
+        }
+        let fixture = Fixture::new();
+        let mut units: Vec<_> = "日本語-\u{10437}-".encode_utf16().collect();
+        units.push(0xD800);
+        let native = fixture.0.join(OsString::from_wide(&units));
+        fs::create_dir_all(native.join("child")).unwrap();
+        fs::write(native.join("keep.txt"), b"native").unwrap();
+        let ordinary = load(&native.join(r"child\.."));
+        assert!(matches!(ordinary.status, Status::Ready));
+        assert_eq!(ordinary.location.as_os_str(), native.as_os_str());
+        assert!(
+            ordinary
+                .raw_entries
+                .iter()
+                .all(|entry| entry.path.parent() == Some(native.as_path()))
+        );
+        let verbatim = fs::canonicalize(&native).unwrap();
+        let state = load(&verbatim);
+        assert!(matches!(state.status, Status::Ready));
+        assert_eq!(state.location.as_os_str(), verbatim.as_os_str());
+        assert!(
+            state
+                .location
+                .as_os_str()
+                .encode_wide()
+                .any(|unit| unit == 0xD800)
+        );
+        let loader = DirectoryLoader::new(Arc::new(|| {})).unwrap();
+        let mut nav = crate::navigation::Navigation::new(verbatim.clone());
+        assert!(browse(
+            &loader,
+            &mut nav,
+            verbatim.clone(),
+            crate::navigation::Intent::Refresh
+        ));
+        nav.selection.select_all(&nav.current.entries);
+        let selected = nav.selection.paths.clone();
+        let retained = nav.current.entries.clone();
+        for suffix in [r"\child\..", r"\child\."] {
+            let mut raw = verbatim.as_os_str().to_owned();
+            raw.push(suffix); // do not let PathBuf::push rewrite a verbatim input
+            let raw = PathBuf::from(raw);
+            assert_eq!(
+                std::path::absolute(&raw).unwrap().as_os_str(),
+                raw.as_os_str()
+            );
+            // Real Windows probe: verbatim dot components are invalid, not
+            // aliases which can safely be stripped into another namespace.
+            assert_eq!(fs::read_dir(&raw).unwrap_err().raw_os_error(), Some(123));
+            let state = load(&raw);
+            assert!(matches!(state.status, Status::Failed(_)));
+            assert!(state.raw_entries.is_empty());
+            assert!(!browse(
+                &loader,
+                &mut nav,
+                raw,
+                crate::navigation::Intent::New
+            ));
+            assert_eq!(nav.current.location.as_os_str(), verbatim.as_os_str());
+            assert!(Arc::ptr_eq(&nav.current.entries, &retained));
+            assert_eq!(nav.selection.paths, selected);
+            assert!(nav.back.is_empty() && nav.forward.is_empty());
+            assert!(
+                nav.error
+                    .as_ref()
+                    .unwrap()
+                    .1
+                    .detail
+                    .contains("Cannot safely normalize")
+            );
+        }
     }
 
     #[test]
@@ -687,6 +919,7 @@ mod tests {
         use std::os::windows::ffi::OsStrExt;
         let fixture = Fixture::new();
         let mut path = fs::canonicalize(&fixture.0).unwrap();
+        let mut ordinary = fixture.0.clone();
         assert!(
             path.as_os_str()
                 .encode_wide()
@@ -694,7 +927,9 @@ mod tests {
                 .starts_with(&[92, 92, 63, 92])
         );
         for i in 0..4 {
-            path.push(format!("segment-{i}-{}", "x".repeat(60)));
+            let segment = format!("segment-{i}-{}", "x".repeat(60));
+            path.push(&segment);
+            ordinary.push(segment);
             fs::create_dir(&path)
                 .expect("generated verbatim long-path directory must be supported");
         }
@@ -702,8 +937,16 @@ mod tests {
         let file = path.join("日本語-é-\u{10437}.txt");
         fs::write(&file, b"native long path")
             .expect("generated long Unicode file must be supported");
+        let ordinary_state = load(&ordinary);
+        assert!(matches!(ordinary_state.status, Status::Ready));
+        assert_eq!(ordinary_state.location.as_os_str(), ordinary.as_os_str());
+        assert_eq!(
+            ordinary_state.entries[0].path,
+            ordinary.join("日本語-é-\u{10437}.txt")
+        );
         let state = load(&path);
         assert!(matches!(state.status, Status::Ready));
+        assert_eq!(state.location.as_os_str(), path.as_os_str());
         assert_eq!(state.entries.len(), 1);
         assert_eq!(state.entries[0].path.as_os_str(), file.as_os_str());
         assert_eq!(state.entries[0].name, "日本語-é-\u{10437}.txt");
@@ -831,14 +1074,14 @@ mod tests {
         assert!(matches!(state.status, Status::Loading));
         state.apply(Response {
             generation: 2,
-            update: Update::Finished(Ok(())),
+            update: Update::Finished(Ok(state.location.clone())),
         });
         assert!(matches!(state.status, Status::Ready));
         let location = state.location.clone();
         state.begin(location.clone(), 3);
         state.apply(Response {
             generation: 2,
-            update: Update::Finished(Ok(())),
+            update: Update::Finished(Ok(location.clone())),
         });
         assert_eq!(state.location, location);
         assert!(matches!(state.status, Status::Loading));

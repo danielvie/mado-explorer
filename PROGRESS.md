@@ -2,21 +2,21 @@
 
 ## Current state
 
-- Baseline: S001-S006a core changes accepted; native capture confirms readable Japanese names and ASCII sort markers. R001 found a separate parent-navigation bug awaiting S006b.
+- Baseline: S001-S006b accepted; read-only browsing core and R001 corrections are complete for the single-context scope. Native capture confirms readable Japanese names and sort feedback.
 - Implementation policy: AGENTS.md. Scope and acceptance contracts: SPEC.md.
-- Current checkpoint: 1, read-only explorer.
-- Active slice: S006b, normalize opened destinations so parent navigation remains correct.
-- Next supervisor action: dispatch the narrow R001 navigation correction, inspect its affected checks and source, then finish read-only checkpoint review and select workspace work.
-- Ten criteria are implemented with pending manual checks. F01.6 rendering is implemented on this host; F01.3 is back in progress due to the confirmed relative-parent bug. No criterion is fully verified yet.
+- Current checkpoint: 2, workspace. Checkpoint 1 implementation/review gates passed; remaining platform/manual items stay explicit and do not block independent workspace implementation.
+- Active slice: S007, independent tabs in one pane, ready to launch.
+- Next supervisor action: launch S007, inspect independent-state and stale-response tests, commit accepted progress, then add split panes.
+- Ten criteria are implemented and one is verified. Remaining UI/OS/manual checks and cross-stage clauses are still pending.
 
-## Active slice S006b and R001 disposition
+## Active slice S007
 
-- Behavior: background normalization of successfully opened destinations before committing location/history. Entering .. from a child must produce its real parent location, and the next Up must go to the grandparent rather than descend back into the child.
-- Targets: R001 P1 / F01.3. Preserve native Unicode/UNC/verbatim paths, failure/stale recovery and normal file-launch path formats. Same-location aliases must not invent history entries or discard selection.
+- Behavior: tab strip, new/close/cycle shortcuts, overflow handling and separate navigation/selection/filter/sort/scroll state for each tab in the current pane.
+- Targets: F03.1, F03.2, the final-window-tab part of F03.4, F03.5, F02.3 tab isolation and F06.2 per-tab filters. Pane/cross-pane clauses are completed with splits.
 - Write boundary: worker owns relevant src/ and README.md only. The supervisor owns tracker/spec/glossary/design/AGENTS/Taskfile and acceptance/commits.
-- Focused check: disposable relative-parent plus Up regression, absolute dot-component input, same-location aliases, failed/stale normalization and affected history/selection checks. No filesystem I/O or cwd mutation in UI update.
-- R001 P2 accepted and corrected by supervisor: full optional installed-font coverage is an explicit reference-host task test:fonts, not a mandatory default-suite machine prerequisite. Assertions remain unchanged and its explicit pass is recorded; default tests report the probe as ignored, never passed.
-- Exclusions: mutation engine, link activation, previews, tabs/splits, finder, registry/association changes, font framework and exhaustive UI automation.
+- Focused check: state round trips between tabs, same-location UI-ID isolation, late/closed-tab response rejection, final-tab home behavior, overflow and editor-owned shortcut guards. Preserve actual saved scroll rather than jumping to the selected row after activation/refresh.
+- Resource contract: background services remain bounded independently of tab count; fonts and explicit file launcher remain window-owned. Do not add thread pools or a directory worker per tab.
+- Exclusions: split tree, cross-pane/tab-edge dragging, filesystem operations, persistence, previews, finder, registry changes and exhaustive UI automation.
 - Handoff: changed paths, exact checks/results, complete versus partial IDs, remaining risks, and next useful slice. Worker does not commit or change criterion statuses.
 
 ## Accepted slices
@@ -35,9 +35,11 @@
 
 - S006a: bounded fixed installed-font loading before native startup, builtin-first families, missing/invalid-asset fallback and ASCII sort markers. Independent reviewer verified constructor parsing against installed epaint source and found no new security/data-loss blocker. Supervisor ran all 54 tests/build and inspected an own-window capture with readable Japanese names, correct metadata and clear sort feedback. R001 P1 is a real older navigation bug: after successful .. navigation, lexical Up can descend. R001 P2 exposed an unnecessary optional-font default-test prerequisite; host coverage now runs explicitly via task test:fonts with original assertions. Native associations, broader scripts/scaling/Narrator and performance remain pending.
 
+- S006b / R001 P1 closed: enumeration workers normalize ordinary Windows paths with native full-path behavior, return effective destinations only on successful completion, and build row paths from that same location. Real disposable parent-then-Up, absolute-dot, same-location alias/history/selection and stale/failure regressions pass. Native Unicode/UNC/verbatim representations are preserved; actual unsupported verbatim-dot cases fail explicitly without changing prior state. Supervisor inspected the correction and ran formatting/check, all default checks (56 passed, one explicit reference-host font probe ignored) and native build successfully. R001 P2 remains resolved by separately passing task test:fonts with unchanged assertions. No new dependency or physical/junction-identity promise was introduced.
+
 ## Blockers and pending manual checks
 
-- R001 P1 blocks read-only checkpoint sign-off: retained dot-dot components can make Up descend after relative-parent navigation. S006b must correct this concrete behavior before workspace development.
+- No current implementation blocker. R001 P1 normalization and P2 portable-font-test findings are addressed and recorded. Physical/junction identity, live network-provider behavior, real associations and other later-stage/manual checks remain outside current verification claims.
 - The confirmed Japanese/sort-marker rendering defect is fixed and observed in native capture on the reference host. Optional installed fonts still vary by machine, with explicit warnings and an opt-in coverage probe.
 - Native own-window printing now provides a safe visual check without foreground access. The earlier foreground capture was refused before any desktop read. Milestone capture corrected harness title timing and DPI virtualization; these were wrapper issues, not app failures. Fixtures/processes were cleaned up.
 - Windows GUI smoke, Narrator, real clipboard interoperability, cross-volume operations, and clean-machine packaging will be checked at their relevant checkpoints, not declared passed in advance.
@@ -50,22 +52,22 @@ Statuses: Not started, In progress, Implemented, Verified, Blocked. Evidence mus
 | --- | --- | --- | --- |
 | F01.1 | Implemented | Opening an accessible folder shows its immediate entries with name, type, modified time, and size for regular files | S001: native paths, immediate-entry metadata, UTC time and unknown folder size; disposable metadata and headless geometry checks passed. Actual visual/interaction smoke pending. |
 | F01.2 | Implemented | Folders sort before files | S002-S003: background all-column/direction/tie/unknown ordering plus native-path selection/active/anchor preservation and reordered-range regressions pass. Interactive header/selection smoke pending. |
-| F01.3 | In progress | Back, forward, up, breadcrumbs, and an editable full path navigate the active tab only | R001 found a concrete relative-parent/Up bug despite earlier passes; S006b normalizes opened destinations before commit. Existing history/failure/stale guards remain tested; broader native interaction and future multi-tab isolation pending. |
+| F01.3 | Implemented | Back, forward, up, breadcrumbs, and an editable full path navigate the active tab only | S006b closes R001 relative-parent/Up bug through successful effective-path commits and alias-safe history/selection, with real background/native-prefix regressions. Broader native interaction and tab isolation checks continue in S007. |
 | F01.4 | Implemented | Empty folders, loading, access denied, missing folders, and unavailable drives have distinct visible states with retry/navigation available. | S001: explicit UI states and retry; real empty/missing/not-folder and synthetic denied/device checks pass. Real ACL/drive and interactive UI verification pending. |
-| F01.5 | Implemented | Directory enumeration and metadata loading run away from the UI thread | S001: two workers, coalesced requests, bounded batches and generation guards; cancellation/stale/latest-request tests pass. Actual slow/uninterruptible-device smoke pending. |
+| F01.5 | Verified | Directory enumeration and metadata loading run away from the UI thread | R001/source inspection confirms all enumeration/metadata/normalization call sites are worker-owned; actual threaded disposable loading, stale-generation, cancellation/latest-request and final normalized-completion regressions pass. No slow-provider cancellation or measured performance claim; those platform/performance checks remain separate. |
 | F01.6 | Implemented | Unicode names and supported long paths work without lossy conversions | S006 native/hidden/diagnostic/long-path fixtures and S006a bounded installed-font fallback pass. Native capture shows readable Japanese names; broader glyph/provider/association/scaling checks remain pending. Font absence is explicitly warned; full reference-host coverage remains a separate recorded probe. |
 | F01.7 | Implemented | Double-click or Enter opens a folder in the current tab, or opens a regular file using the OS default application | S005: folder routing and bounded ShellExecuteExW file launch use captured fresh visible native paths, exact editor/control/repeat guards and path-specific OS errors. Six new activation/launch checks and existing guards pass. Real associated-file/extension/long-path/native GUI verification pending. |
 | F02.1 | Implemented | Click selects one entry; Ctrl+click toggles entries; Shift+click selects a range in the current displayed order | S003: whole-row click/toggle/range/all, native non-Unicode identity and metadata/gap pointer regressions pass. Native GUI interaction pending; filtering integrates in S004. |
 | F02.2 | Implemented | Arrow keys, Home, End, Page Up, and Page Down move the active row and keep it visible | S003: boundaries/pages/Shift and active-row scroll targets pass state/headless checks at small and normal viewports. Native keyboard/visual verification pending. |
-| F02.3 | Not started | Selection belongs to the tab |  |
+| F02.3 | In progress | Selection belongs to the tab | S007 planned: independent native-path selection per tab; pane isolation follows with splits. |
 | F02.4 | Not started | Commands operate on an immutable snapshot of selected paths taken when invoked |  |
 | F02.5 | In progress | Explorer shortcuts do not run while typing in the finder, filter, path editor, or rename field | S002-S004: path/filter TextEdit and submission-frame ownership, exact modifiers, Escape filter-focus exit and Enter versus other-control focus are regression-tested. Finder/rename later. |
 | F02.6 | Implemented | Refresh removes vanished selections while preserving surviving selected paths, rather than preserving row numbers. | S003: reconcile raw native paths only on successful current-generation completion; progressive/failed/stale results preserve identities. Survivor/disappearance/empty-folder tests pass; native refresh smoke pending. |
-| F03.1 | Not started | Ctrl+T or the plus button creates a tab at the current location |  |
-| F03.2 | Not started | Returning to a tab restores its location, history, filter, sort, selection, and scroll position |  |
+| F03.1 | In progress | Ctrl+T or the plus button creates a tab at the current location | S007 planned: create/close/cycle in the current pane; input ownership preserved. |
+| F03.2 | In progress | Returning to a tab restores its location, history, filter, sort, selection, and scroll position | S007 planned: retained tab state plus refreshed contents without stale response leakage or scroll-to-active overriding saved manual position. |
 | F03.3 | Not started | Tabs can be reordered within a pane and moved between panes by dragging |  |
-| F03.4 | Not started | Closing the last tab of a non-final pane closes that pane |  |
-| F03.5 | Not started | Tab labels remain usable when many tabs are open, with overflow scrolling or an overflow menu |  |
+| F03.4 | In progress | Closing the last tab of a non-final pane closes that pane | S007 implements final-window-tab replacement at home; non-final-pane collapse follows with splits. |
+| F03.5 | In progress | Tab labels remain usable when many tabs are open, with overflow scrolling or an overflow menu | S007 planned: usable overflow and full-location hover, stable tab UI IDs. |
 | F04.1 | Not started | A layout action splits the focused pane left/right or top/bottom |  |
 | F04.2 | Not started | Dropping a tab on a pane edge creates a split and moves that tab into it |  |
 | F04.3 | Not started | Dividers resize neighboring panes |  |

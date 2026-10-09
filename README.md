@@ -25,7 +25,24 @@ paths resolve against the **committed** location, including when a new destinati
 is still loading. Ambiguous drive-relative input (`C:folder` or `C:`) is rejected
 with recovery feedback; use `C:\folder` or an ordinary relative path instead.
 Absolute drive/UNC and native verbatim long-path prefixes are retained. Device
-namespaces are not supported as typed browsing destinations. Breadcrumbs identify
+namespaces are not supported as typed browsing destinations. Enumeration workers
+normalize ordinary Windows destinations with stdlib native full-path behavior before
+opening them: `..` from `C:\fixture\a` commits `C:\fixture`, so the next Up goes to
+`C:\`. Absolute dot-component inputs follow the same rule. Row paths come from that
+same normalized destination; only a successful current-generation completion commits
+it. Successful same-location aliases (`.` or `child\..`) refresh surviving selection
+without adding history or clearing Forward. Failed/stale normalization of a new
+destination retains the previous location/listing/history/selection, just like
+failed destination loading. Explicit Refresh retains its existing loading/error
+semantics.
+
+This is not filesystem canonicalization or link-target resolution: ordinary paths
+stay ordinary, while dot-free native UNC/verbatim and supported long paths keep their
+prefixes and native name units. Explicit verbatim `.`/`..` components are rejected
+on the worker with recovery feedback rather than guessed/stripped; this host's Windows
+APIs report invalid-name errors for such inputs. Use Up/breadcrumbs or enter a
+fully specified dot-free path. No UI filesystem I/O or process cwd changes are used.
+Breadcrumbs identify
 that committed location; an explicit Opening message identifies the pending
 listing shown progressively below it. A new location/history commits only when
 its enumeration succeeds. A failed destination restores the previous listing and
@@ -303,4 +320,9 @@ epaint 0.36.2 `has_glyphs` false-negative: it compares resolved and replacement 
 IDs, so supported characters on that same face can report missing. Coverage tests
 use the public `Font::characters()` charmap instead, asserting every sample code
 point in both families without treating replacement glyphs as name coverage.
+S006b adds disposable background parent-then-Up, absolute-dot/same-alias history and
+selection, native-prefix/malformed UTF-16 and failed/stale completion regressions.
+Long-path enumeration also checks that ordinary paths are not converted to verbatim
+paths and existing verbatim locations remain verbatim. Live UNC/provider-specific
+normalization and native navigation interaction remain manual pending.
 No destructive operations or personal-folder checks are needed for this slice.
