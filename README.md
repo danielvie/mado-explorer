@@ -1,6 +1,6 @@
 # Mado Explorer
 
-S002: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S003: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
@@ -13,8 +13,8 @@ task design                      # opens the Excalidraw reference
 task design-test                 # validates the reference
 ```
 
-Enter a folder path and press Enter/Go, double-click a folder name (or focus its
-button and press Enter), or use Back, Forward, Up and the breadcrumb buttons.
+Enter a folder path and press Enter/Go, double-click a folder row (or make it the
+active row and press Enter), or use Back, Forward, Up and the breadcrumb buttons.
 Alt+Left/Right/Up navigate; Refresh/F5 reloads. These shortcuts are suspended while
 the path editor has focus. Relative typed paths resolve against the **committed**
 location, including when a new destination is still loading. Breadcrumbs identify
@@ -31,10 +31,35 @@ reverse direction. Initially names are ascending. Folders stay first in both
 directions. Unknown sizes/times follow known values within each group in both
 directions. Equal values use ascending native name, then full native path, as the
 deterministic tie-breaker. Sorting uses native filesystem name ordering, not
-locale-aware or natural-number ordering. No selection exists yet, so selection
-preservation under sorting remains unimplemented.
+locale-aware or natural-number ordering. Sorting preserves selected paths, the
+active row and range anchor; subsequent ranges use the currently displayed order.
 
-No regular-file opening, selection, filtering, previews, settings, tabs/splits or
+Click anywhere in a row to select it. Ctrl+click toggles a path; Shift+click replaces
+selection with the anchor-to-click range (Ctrl+Shift adds that range). Ctrl+A selects
+only the currently displayed entries. The selected count is visible above the table.
+The active row has a border, independent of whether it is selected; the Entries
+heading shows keyboard focus. Up/Down, Home/End and Page Up/Down move the active row
+and scroll it into view; Shift extends/reduces the anchor range. With no active row,
+Down/Page Down/Home start at the first row and Up/Page Up/End at the last row. Plain
+movement replaces selection; a missing anchor falls back to the active row or target.
+Path-editor focus (including the frame that submits it) suspends browsing keys;
+Enter on another focused control is not also folder activation.
+
+Refresh retains selection/active/anchor during empty or progressive snapshots and
+failed reads. Only a successfully completed listing removes vanished paths; surviving
+paths remain selected. Pending destination rows cannot be selected or activated until
+navigation commits. Failed destinations preserve the committed selection; successful
+navigation to another location clears it. Selection is scoped to the one current
+browsing context, not yet isolated across tabs/panes.
+
+Identity lookup for keyboard movement and range endpoints is intentionally O(n) in
+the displayed entry count; Ctrl+A/range updates and successful-refresh reconciliation
+are also linear. No entry-count cap is enforced. The proposed 20,000-entry target has
+not been performance-verified. If measured input latency exceeds its budget, build a
+native path-to-index projection on the sorting worker and publish it with the existing
+generation/revision key, rather than retaining row indices across sorting.
+
+No regular-file opening, filtering, previews, settings, tabs/splits or
 mutations are implemented. Hidden entries are included. Paths used for folder
 activation, row identity, breadcrumbs and history stay native/lossless;
 display/path-editor text is lossy for non-Unicode names. Submitting the unchanged
@@ -85,7 +110,20 @@ Use only disposable folders containing child folders and small files:
 5. Use a separately prepared access-denied fixture and an unavailable drive;
    check distinct errors and usable navigation. Classification is unit-tested,
    but real ACL-denial and unavailable-drive smoke checks are pending.
-6. Navigate A to B while A is slow; change sort while loading and navigate again.
+6. Select a row by clicking its name, type, modified time, size and blank row space.
+   Check Ctrl toggling, Shift ranges, Ctrl+A and selected count, then sort each column:
+   selected/active paths must stay the same; new ranges use the displayed order.
+   Use keyboard-only arrows, Home/End, Page Up/Down and Shift at the first/last rows
+   and in an empty folder. The bordered active row must stay visible while scrolling.
+   With the path editor focused, Ctrl+A must select text; arrows/Home/End/Page keys
+   and Enter must not also select rows or activate a folder. Enter on a regular file
+   does nothing in this slice.
+7. Select multiple disposable entries; externally remove one, then refresh. Surviving
+   selections must remain through loading and the vanished one must disappear only
+   after successful completion. Test a failed destination with selection, followed
+   by a successful folder navigation: failure retains selection, success clears it.
+   Pending destination rows must not accept selection or activation.
+8. Navigate A to B while A is slow; change sort while loading and navigate again.
    Verify late entries/sorts never populate the wrong listing and history changes
    only on successful latest navigation. Automated state/worker regressions do
    not substitute for a measured slow-drive interaction check.
@@ -94,5 +132,7 @@ GUI appearance/interaction, display scaling and Windows Narrator checks still
 require manual verification. S001's process-level startup/close smoke created the
 native window and exited with code 0; it did not verify displayed states. S002
 has automated sorting, navigation, background pipeline and headless shortcut
-checks, but no foreground-capture or interactive GUI acceptance claim.
+checks. S003 adds selection-state, reconciliation, whole-row hit testing, editor
+ownership and virtualized keyboard-scroll regressions. These are not a
+foreground-capture or interactive GUI acceptance claim.
 No destructive operations or personal-folder checks are needed for this slice.

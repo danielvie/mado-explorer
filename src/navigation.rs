@@ -1,5 +1,6 @@
 use crate::{
     directory::{DirectoryState, Failure, FailureKind, Response, Status, Update},
+    selection::Selection,
     sorting::{Key, Sort, Sorted},
 };
 use std::path::{Path, PathBuf};
@@ -19,6 +20,7 @@ struct Pending {
 
 pub struct Navigation {
     pub current: DirectoryState,
+    pub selection: Selection,
     pub back: Vec<PathBuf>,
     pub forward: Vec<PathBuf>,
     pending: Option<Pending>,
@@ -32,6 +34,7 @@ impl Navigation {
     pub fn new(location: PathBuf) -> Self {
         Self {
             current: DirectoryState::new(location),
+            selection: Selection::default(),
             back: Vec::new(),
             forward: Vec::new(),
             pending: None,
@@ -135,6 +138,7 @@ impl Navigation {
                         Intent::Refresh => unreachable!(),
                     }
                     self.current = pending.directory;
+                    self.selection = Selection::default();
                     return true;
                 }
                 Status::Failed(failure) => {
@@ -148,6 +152,9 @@ impl Navigation {
             }
             let success = matches!(response.update, Update::Finished(Ok(())));
             self.current.apply(response);
+            if success {
+                self.selection.reconcile(&self.current.raw_entries);
+            }
             return success;
         }
         false
@@ -329,6 +336,77 @@ mod tests {
         assert!(!nav.apply_sorted(Sorted { key, entries }));
         assert_eq!(nav.resolve("child"), nav.current.location.join("child"));
         assert_eq!(nav.back, vec![a]);
+    }
+
+    #[test]
+    fn selection_reconciles_only_successful_current_refresh_and_survives_failed_navigation() {
+        use crate::selection::tests::rows;
+        let mut nav = ready();
+        let location = nav.current.location.clone();
+        let data = rows(&["a", "b", "c"]);
+        let snapshot = |generation, entries| Response {
+            generation,
+            update: Update::Snapshot {
+                entries,
+                metadata_errors: 0,
+            },
+        };
+        nav.apply(snapshot(1, data.clone()));
+        nav.apply_sorted(Sorted {
+            key: nav.key(),
+            entries: data.clone(),
+        });
+        nav.selection.click(&data, 0, false, false);
+        nav.selection.click(&data, 2, true, false);
+        let paths = nav.selection.paths.clone();
+        nav.sort.toggle(crate::sorting::Column::Name);
+        let reversed = Arc::new(data.iter().rev().cloned().collect());
+        assert!(nav.apply_sorted(Sorted {
+            key: nav.key(),
+            entries: reversed
+        }));
+        assert_eq!(nav.selection.paths, paths);
+        assert_eq!(nav.selection.active_index(&nav.current.entries), Some(0));
+
+        nav.begin(location.clone(), 2, Intent::Refresh);
+        assert!(nav.current.entries.is_empty());
+        assert_eq!(nav.selection.paths, paths);
+        nav.apply(snapshot(2, rows(&["a"])));
+        assert_eq!(nav.selection.paths, paths); // progressive rows aren't authoritative
+        finish(&mut nav, 2, false);
+        assert_eq!(nav.selection.paths, paths); // nor is a failed refresh
+
+        nav.begin(PathBuf::from("missing"), 3, Intent::New);
+        assert!(nav.pending_location().is_some());
+        nav.apply(snapshot(3, rows(&["destination-row"])));
+        finish(&mut nav, 3, false);
+        assert_eq!(nav.current.location, location);
+        assert_eq!(nav.selection.paths, paths);
+        assert_eq!(nav.selection.active, Some(PathBuf::from("c")));
+        assert_eq!(nav.selection.anchor, Some(PathBuf::from("c")));
+        assert!(!finish(&mut nav, 2, true)); // stale completion cannot prune selection
+        assert_eq!(nav.selection.paths, paths);
+
+        nav.begin(location.clone(), 4, Intent::Refresh);
+        nav.apply(snapshot(4, rows(&["a", "b"])));
+        assert_eq!(nav.selection.paths, paths);
+        finish(&mut nav, 4, true);
+        assert_eq!(
+            nav.selection.paths,
+            [PathBuf::from("a")].into_iter().collect()
+        );
+        assert!(nav.selection.active.is_none() && nav.selection.anchor.is_none());
+        nav.begin(location, 5, Intent::Refresh);
+        finish(&mut nav, 5, true); // authoritative empty folder
+        assert!(nav.selection.paths.is_empty());
+
+        nav.selection.click(&data, 1, false, false);
+        nav.begin(PathBuf::from("other"), 6, Intent::New);
+        assert!(!finish(&mut nav, 5, true));
+        assert!(!nav.selection.paths.is_empty());
+        finish(&mut nav, 6, true);
+        assert!(nav.selection.paths.is_empty());
+        assert!(nav.selection.active.is_none() && nav.selection.anchor.is_none());
     }
 
     #[test]
