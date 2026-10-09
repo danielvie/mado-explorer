@@ -124,7 +124,7 @@ fn modified_timestamp(value: SystemTime) -> Result<String, time::error::Componen
     ))
 }
 
-fn is_link(metadata: &fs::Metadata) -> bool {
+pub(crate) fn is_link(metadata: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
@@ -505,7 +505,7 @@ fn send_response(
 
 // Windows normalization stays on enumeration workers and never resolves link
 // targets or switches an ordinary path to canonicalize's extended namespace.
-fn normalize_destination(path: &Path) -> io::Result<PathBuf> {
+pub(crate) fn normalize_destination(path: &Path) -> io::Result<PathBuf> {
     #[cfg(windows)]
     {
         let location = std::path::absolute(path)?;

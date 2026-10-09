@@ -1,11 +1,36 @@
 use super::*;
 
 impl Explorer {
+    pub(super) fn focus_pointer_pane(&mut self, ui: &egui::Ui) {
+        let clicked = ui.input(|input| {
+            input
+                .pointer
+                .any_pressed()
+                .then(|| input.pointer.interact_pos())
+                .flatten()
+        });
+        if let Some(pointer) =
+            clicked.filter(|p| ui.is_enabled() && self.visible_workspace.contains(*p))
+        {
+            if let Some((id, _)) = self
+                .pane_rects
+                .iter()
+                .find(|(_, rect)| rect.contains(pointer))
+            {
+                let pane = self.panes.iter().position(|pane| pane.id == *id).unwrap();
+                if pane != self.focused {
+                    self.focus_pane(pane);
+                    surrender_focus(ui.ctx());
+                }
+            }
+        }
+    }
+
     pub(super) fn navigate(&mut self, location: PathBuf, intent: Intent) {
         self.navigate_in(self.focused, location, intent);
     }
 
-    fn navigate_in(&mut self, pane: usize, location: PathBuf, intent: Intent) {
+    pub(super) fn navigate_in(&mut self, pane: usize, location: PathBuf, intent: Intent) {
         let pane = &mut self.panes[pane];
         let tab = &mut pane.tabs[pane.active];
         let generation = self.loader.request_for(tab.id.0, location.clone());
@@ -37,10 +62,16 @@ impl Explorer {
                 .map(|p| &mut p.tabs[p.active])
                 .find(|tab| tab.navigation.key().generation == response.generation)
             {
-                tab.apply(response);
+                if tab.apply(response) {
+                    let path = tab.navigation.current.location.clone();
+                    self.locations.visit(path);
+                }
             }
         });
         self.request_sort();
+        // A commit while a finder is open must never change its frozen base or
+        // silently authorize an obsolete catalogue/probe response.
+        self.reconcile_finder_catalogue();
         // One result per visible target; catch-up is bounded by the pane count.
         for _ in 0..self.panes.len() {
             let Some(sorted) = self.sorter.take() else {
@@ -413,26 +444,7 @@ impl Explorer {
                     ui.ctx().request_repaint();
                 }
                 // Resolve pointer focus before *any* pane can consume keyboard input.
-                let clicked = ui.input(|input| {
-                    input
-                        .pointer
-                        .any_pressed()
-                        .then(|| input.pointer.interact_pos())
-                        .flatten()
-                });
-                if let Some(pointer) = clicked.filter(|p| ui.clip_rect().contains(*p)) {
-                    if let Some((id, _)) = self
-                        .pane_rects
-                        .iter()
-                        .find(|(_, rect)| rect.contains(pointer))
-                    {
-                        let pane = self.panes.iter().position(|pane| pane.id == *id).unwrap();
-                        if pane != self.focused {
-                            self.focus_pane(pane);
-                            surrender_focus(ui.ctx());
-                        }
-                    }
-                }
+                self.focus_pointer_pane(ui);
                 if ui.input_mut(|input| {
                     consume_exact_key(input, egui::Modifiers::NONE, egui::Key::F6)
                 }) {
@@ -500,7 +512,9 @@ impl Explorer {
                     }
                 }
             });
-        self.finish_tab_drag(ui, complete_geometry);
+        if ui.is_enabled() {
+            self.finish_tab_drag(ui, complete_geometry);
+        }
         self.request_sort();
     }
     fn render_pane(

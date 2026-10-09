@@ -1,4 +1,8 @@
 mod directory;
+mod finder;
+#[cfg(test)]
+mod finder_tests;
+mod finder_ui;
 mod font_fallback;
 mod native;
 mod navigation;
@@ -64,6 +68,9 @@ struct Explorer {
     reveal_focused_pane: bool,
     next_tab_id: u64,
     home: PathBuf,
+    finder_service: finder::Service,
+    finder: Option<finder::Modal>,
+    locations: finder::Catalogue,
 }
 
 impl Explorer {
@@ -85,7 +92,8 @@ impl Explorer {
         let context = cc.egui_ctx.clone();
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(move || context.request_repaint());
         let loader = DirectoryLoader::new(repaint.clone())?;
-        let sorter = Sorter::new(repaint)?;
+        let sorter = Sorter::new(repaint.clone())?;
+        let finder_service = finder::Service::new(repaint)?;
         let home = std::env::home_dir().ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::NotFound,
@@ -114,6 +122,9 @@ impl Explorer {
             reveal_focused_pane: false,
             next_tab_id: 2,
             home,
+            finder_service,
+            finder: None,
+            locations: finder::Catalogue::default(),
         };
         app.navigate(location, Intent::Refresh);
         Ok(app)
@@ -1447,6 +1458,10 @@ mod tests {
             reveal_focused_pane: false,
             next_tab_id: 2,
             home: PathBuf::from("fixture-home"),
+            finder_service: finder::Service::with_inventory(Arc::new(|| {}), Some(Vec::new()))
+                .unwrap(),
+            finder: None,
+            locations: finder::Catalogue::default(),
         }
     }
 
@@ -1979,6 +1994,6 @@ impl eframe::App for Explorer {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ui, |ui| self.workspace(ui));
+        egui::CentralPanel::default().show(ui, |ui| self.finder_workspace(ui));
     }
 }

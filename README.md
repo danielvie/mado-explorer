@@ -1,6 +1,6 @@
 # Mado Explorer
 
-S009: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S010: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
@@ -183,7 +183,7 @@ not been performance-verified. If measured input latency exceeds its budget, bui
 native path-to-index projection on the sorting worker and publish it with the existing
 generation/revision key, rather than retaining row indices across sorting.
 
-No previews, settings, folder finder or mutation commands are implemented.
+No previews, settings persistence or mutation commands are implemented.
 The explorer itself remains read-only, but **externally launched applications may
 edit their files or execute code**; open only files you intend to open.
 Hidden and system entries are **hidden by default**. The explicit **Show
@@ -463,7 +463,7 @@ independent tab/selection/navigation state, pane collapse/final-home, narrow col
 shrink/F6 accessibility, simultaneous disposable pane loads and repeated projections,
 closed/stale target rejection, per-target FIFO/coalescing/lifecycle bounds and captured
 launch completion after pane close. The worker counts remain fixed. Mutating-operation
-retention, previews, folder finder and persistence are later slices.
+retention, previews and persistence are later slices.
 
 S009 adds typed egui tab dragging, transactional reorder/transfer and four edge splits.
 Ten focused state/headless/background checks cover real pointer reorder/cross-strip
@@ -483,3 +483,128 @@ refresh with manual scroll restoration. These are not native drag/DPI/Narrator c
     and no state loss. Cancel with Escape and release outside targets; neither should
     activate rows or launch files. Native pointer interaction, DPI and Narrator checks
     remain pending; do not use document launches or personal-folder mutations as tests.
+
+## Folder finder (S010)
+
+**Ctrl+O** opens a focused modal over the current layout. It captures the focused
+pane's active tab ID and its **committed** native folder as a frozen relative base.
+Opening, querying, expanding and Escape do not navigate or change history/selection.
+Escape/Close dismiss and restore browsing focus. The finder exclusively owns text,
+IME, clipboard and keyboard input; background pane/tab/row/divider/drag controls
+are disabled, including the opening, dismissal and successful completion frames.
+
+An empty query lists recent successful visits, bookmarks, logical storage roots,
+and common places. Recent visits are recorded only after a directory load actually
+commits, never from a failed request or path probe. Windows common places are the
+current user's Home, Desktop, Documents, Downloads, Pictures, Music and Videos,
+resolved on the finder worker through `SHGetKnownFolderPath` with default flags
+(no default-path/create flags). This respects redirection; each returned allocation
+is freed with `CoTaskMemFree`, including any allocation on failure. Logical drive
+roots use `GetLogicalDrives`; they are not probed just by displaying them. Inventory
+is a window-session snapshot initialized on first use, not a watcher; unavailable
+known-folder APIs produce visible warnings. New/remapped drives require restarting
+for inventory discovery; an explicit path can still be entered. This is Windows-first;
+the non-Windows development fallback has only `/` and an explicit common-place warning.
+
+Fuzzy **whitespace-separated terms** independently match case-insensitive
+subsequences in each location's name or full diagnostic path: `mado exp` matches
+`mado-explorer`. Terms need not be adjacent or ordered relative to each other.
+Ranking first minimizes the number of path-only terms, then the sum of start-offset
+and inter-character gap penalties, then compares case-sensitive display name and
+native path, with original catalogue order for exact ties. Matching uses stdlib
+Unicode lowercase, not locale-aware full case folding or normalization. Matched
+characters are cyan and underlined. Empty/whitespace-only queries retain category
+order (newest recents, bookmarks in addition order, common places, storage roots).
+A location can appear in more than one category. Non-Unicode names use the existing
+escaped diagnostics for matching; selected actions always retain the native path.
+No matches and empty expansion views are explicit, not implicit navigation.
+
+Enable **Path entry** to interpret the input as an absolute path or a path relative
+to the captured base (including a single folder name, spaces or `..`). This explicit
+mode avoids guessing whether a fuzzy query is a relative filename. Drive-relative,
+device namespace, URL and NUL input is rejected; native UNC/verbatim prefixes and
+Unicode follow existing browsing normalization. Diagnostic text is not editable
+path serialization; use selected native results for non-Unicode child folders.
+
+- Up/Down selects a result and reveals it; Enter opens it in the captured tab.
+- Shift+Enter opens a fresh tab in the captured pane.
+- Ctrl+Enter opens a fresh **left/right** split at that folder. The source must be
+  fully visible and fit two 320 x 300 panes plus a six-point divider; refusal is
+  visible and creates no partial pane/tab or focus change.
+- Tab (or Children) probes/expands the selected folder, or the typed path in Path
+  entry mode. It replaces the results with immediate non-link folder children and
+  clears the query for further fuzzy narrowing. Repeated Tab expands a selected
+  child; the underlying tab has not navigated. Known locations returns to inventory.
+- Bookmark/Unbookmark and Forget recent are explicitly labelled **session** controls.
+  At most 128 bookmarks and 128 newest recents are retained; adding a bookmark when
+  full is visibly refused. Nothing is saved to disk; these lists do not survive restart.
+
+Actions perform a worker-side native normalization, folder-type and enumeration-
+access probe. Missing, nonfolder, denied, unsupported and ordinary OS errors identify
+the captured path and keep the modal usable. Probing can succeed and subsequent
+browsing enumeration still fail (filesystem races remain possible); ordinary
+transactional browsing then retains prior current-tab history/location. A captured
+pane/tab that closed, moved, changed its active tab or began another navigation is
+refused rather than retargeted. A pending background navigation committing a
+different location also invalidates the target; it never changes the relative base.
+Close and reopen to capture the new context.
+
+One fixed window-owned finder worker is added to the existing services. It has one
+running job, one replaceable pending job and one result slot, not a per-query/pane/tab
+thread. All inventory calls, normalization, metadata, directory iteration, matching,
+emphasis indices and ranking sorts run there. UI work is bounded catalogue copying,
+state checks and virtualized result rendering, not filesystem I/O or ranking.
+Known-location ranking has at most 289 candidates (128 recents + 128 bookmarks +
+seven common places + 26 roots). Explicit expansion examines at most 8192 entries
+(with one additional iterator step to detect truncation) and retains at most 4096
+folders. It never recursively scans. Truncation is visibly labelled; use an explicit
+path for omitted children. Child ordering is display-name/native-path deterministic after
+that bounded enumeration subset. Expanded-query ranking has at most 4096 candidates.
+Fuzzy queries above 4096 characters and explicit paths above 32766 UTF-16 units
+produce visible errors. Input is retained in full, never silently truncated into
+a different path. Supported long explicit paths do not inherit the fuzzy-query limit. Counts bound retained vectors/transport, not a
+claimed process-memory byte budget or measured latency target. Names/paths retain
+native OS length limits; the GUI's result list is virtualized and the whole modal
+scrolls when the window is short.
+
+Every query, catalogue change, probe/expansion, cancellation and reopen advances a
+window-wide request revision. Publishing and accepting both check it. A catalogue
+change during an action cancels that obsolete action and updates the view; choose
+again after updating. Old results cannot be acted upon while a request is pending.
+Cancellation is checked between ranking candidates and expansion entries, and at
+publication; a running bounded sort and OS calls are not interruptible. Initial
+inventory performs seven known-folder calls and one logical-drive call. A probe has
+normalization, metadata, opening read_dir and at most one iterator step; expansion
+then opens a second iterator and makes the bounded child steps/non-following metadata reads. One stuck
+provider can occupy this worker, delaying finder work but not browsing/input or the
+other services. Editing coalesces the next request; Escape discards pending/result
+slots. Shutdown wakes the worker and joins only if already finished, otherwise
+it detaches until return/process teardown. No filesystem writes, index, content
+search, associations/registry changes or automatic launches are introduced.
+
+S010 adds thirteen focused state/headless/background tests using disposable generated
+folders and injected inventory. They cover target/base capture, native path modes,
+empty categories/fuzzy ranking/emphasis/no-match, failed probes/recovery, expansion
+without navigation, query/catalogue/modal/probe revisions, latest-request coalescing,
+closed/moved/changed targets, atomic split refusal, all finder keys, modal text/paste
+and background-shortcut isolation, same-frame ready-probe edit/dismissal cancellation,
+and session management/success-only recent visits. Review regressions prove input
+focus and typing after Tab expansion, lossless long-path paste and explicit oversize
+refusal, pointer-before-Ctrl+O target capture, and a focused AccessKit text-input node.
+The accessibility probe checks emitted metadata, not native Narrator output.
+Native redirected places, unavailable/slow storage providers, real ACL denial,
+interactive keyboard/pointer/clipboard, scaling and Narrator remain manual pending.
+Restart persistence (F05.6/F13.4-F13.5) is the next independent settings-write slice.
+
+15. Using only disposable folders, open Ctrl+O from each pane with different active
+    tabs/filters/selections; verify the captured base and exclusive input. Try fuzzy
+    terms/no-match, absolute and relative Path entry, repeated Tab, Up/Down and all
+    three Enter actions. Confirm only explicit acceptance changes browsing, and a
+    too-small split shows refusal without a new tab/pane. Test missing/nonfolder and
+    a prepared denied fixture, then recover without reopening. Open during pending
+    navigation: its later commit must not change the frozen base and should refuse
+    acceptance until reopened. Escape/Close must not navigate or leak Ctrl+T/F6/row
+    input. Check the actual redirected common places and logical roots without
+    modifying personal entries. Bookmark/unbookmark/forget fixture locations and
+    restart: session-only lists should reset. Check narrow/short windows, 100/150/200%
+    scaling and Narrator; these native/manual checks are not yet claimed as passed.
