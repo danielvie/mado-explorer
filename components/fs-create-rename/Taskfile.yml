@@ -14,6 +14,14 @@ tasks:
     cmds:
       - task: run
       - cargo test --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p02' --features unreviewed-native-rename -- --nocapture
+  diagnostic:rename:
+    desc: Observe disposable legacy/Ex no-replacement matrix, not rename acceptance
+    cmds:
+      - cargo test --locked --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p02' --test diagnostics native_no_replace_variant_matrix -- --ignored --exact --nocapture
+  test:junction:
+    desc: Check static owned junction rejection without symlink privilege
+    cmds:
+      - cargo test --locked --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p02' --test diagnostics junction_source_and_ancestors_reject_without_touching_owned_target -- --exact --nocapture
   test:reparse:
     desc: Probe reparse guards explicitly, requires Windows symlink privilege
     cmds:

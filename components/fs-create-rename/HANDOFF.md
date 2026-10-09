@@ -126,3 +126,84 @@ Further limits:
 - Retained identity is not a content snapshot and does not stop concurrent writers.
 - Success paths use verbatim native absolute representation. Integration must reconcile affected locations without assuming textual equality with ordinary tab paths.
 - Fresh independent filesystem safety review is mandatory before promotion or personal-data use, including creation. No manual or skipped check is marked passed.
+
+## P02b bounded diagnostics
+
+Completed diagnostic work only. No production fix or enablement. Starting clean HEAD was `41cb9f72d9a0e292dbfdbd6b8b41b35a39e64d7d` on `lane/fs-create-rename` in the checkout named above. The supervisor recorded this slice in main PROGRESS.md before launch. Targets are F09.4 primitive diagnosis and static F09.1/F09.5 reparse evidence, not complete criteria.
+
+Exclusive changed paths:
+
+- `components/fs-create-rename/tests/diagnostics.rs`
+- `components/fs-create-rename/Taskfile.yml`
+- `components/fs-create-rename/HANDOFF.md`
+
+`src/`, manifest, lockfile, default rename gate, and `tests/safety.rs` are unchanged. No root/main/sibling edit, delegation, merge, push, personal-data test, elevation, or Developer Mode request. The new matrix is explicitly ignored and invokes native calls only within its private test helper. `task test` still exposes the original failing regression.
+
+The supervisor's independent review of the original implementation confirmed the collision blocker without another concrete FFI/data-loss defect. Any later production change still needs independent review before enablement.
+
+### Native comparison result
+
+One nine-call matrix ran on Windows build `10.0.26200.0`, `x86_64-pc-windows-msvc`, C: NTFS, Rust/Cargo 1.95.0. Each call used a separately reserved flat `mado-p02b-<pid>-<counter>` directory under `C:/Users/daniel/AppData/Local/Temp`. Sources contain exactly `b"source bytes"`; ordinary destinations contain exactly `b"destination bytes"`. Before and after directory enumeration recorded exact names, volume serial, all 128 file-ID bits, and bytes. Case-only results use exact enumeration spelling, not case-insensitive path existence.
+
+The fixture uses backend capture to pin/reject ancestors and retain source identity. It separately captures a native source ID, reopens the fixed name with DELETE and no delete sharing, compares IDs, checks non-reparse attributes, and mutates only through that reopened handle under the retained parent. Destinations for ordinary/hard-link cases are created after revalidation. All buffers are aligned and zero-filled. Replacement bit 1 is never set. Legacy uses class 10/flags 0; Ex variants use class 65/flags 0 or 2. No additional flag search was performed.
+
+`C` below is `NTSTATUS 0xc0000035`, Win32 183. `S` is `NTSTATUS 0x00000000`, Win32 0.
+
+| Variant | Existing ordinary file | Existing source hard link | Case-only `Case.txt` to `case.TXT` |
+| --- | --- | --- | --- |
+| Legacy, class 10, flags 0 | C; both names, IDs and bytes unchanged | S; source name removed, destination ID/bytes retained | S; one entry with requested spelling, same ID/bytes |
+| Ex-zero, class 65, flags 0 | C; both names, IDs and bytes unchanged | S; source name removed, destination ID/bytes retained | S; one entry with requested spelling, same ID/bytes |
+| Ex-POSIX-only, class 65, flags 2 | C; both names, IDs and bytes unchanged | C; both names, same ID and bytes unchanged | C; original spelling, ID and bytes unchanged |
+
+Exact observed IDs below are the 16-byte identifiers as hexadecimal in returned byte order. All use volume serial `3172367324309295054`. A hard-link destination starts with the same ID as its source. Case-only starts with one entry. After-state identity mappings are described in the matrix above; no remaining entry's ID or bytes changed.
+
+| Variant/scenario | Source ID before | Destination ID before |
+| --- | --- | --- |
+| Legacy/ordinary | `fcea1c00000019000000000000000000` | `94f21c0000001b000000000000000000` |
+| Legacy/hardlink | `fcea1c0000001a000000000000000000` | same as source |
+| Legacy/case-only | `fcea1c0000001b000000000000000000` | no separate entry |
+| Ex-zero/ordinary | `fcea1c0000001c000000000000000000` | `94f21c0000001c000000000000000000` |
+| Ex-zero/hardlink | `fcea1c0000001d000000000000000000` | same as source |
+| Ex-zero/case-only | `fcea1c0000001e000000000000000000` | no separate entry |
+| Ex-POSIX-only/ordinary | `fcea1c0000001f000000000000000000` | `94f21c0000001d000000000000000000` |
+| Ex-POSIX-only/hardlink | `fcea1c00000020000000000000000000` | same as source |
+| Ex-POSIX-only/case-only | `fcea1c00000021000000000000000000` | no separate entry |
+
+Ex-POSIX-only protects the static alias in this observation but refuses case-only rename. No candidate both protects aliases and permits case-only rename. Consequently no conditional concurrent-alias follow-up was added. Stop this flag-comparison avenue here and return the tradeoff to the supervisor. Do not combine a preflight guess with these outcomes and call it race-safe.
+
+The primary [FILE_RENAME_INFORMATION documentation](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information) was read. It describes POSIX semantics in conjunction with the replacement flag for replacing an open target. It provides no separate same-file collision guarantee for POSIX-only. This table reports observed host behavior, not a documented guarantee. The diagnostic test's passing result means it completed its observations and remaining-entry integrity checks. It explicitly does not assert that the no-overwrite criterion passed.
+
+### Static junction sentinel
+
+The new default test invokes the OS `cmd.exe /D /C mklink /J` facility between two generated owned fixtures. No privilege change was needed. File creation, directory creation, capture of the junction itself, and capture of a source through the junction all returned `Error::ReparsePoint`. The target retained its sole `sentinel` entry with identical native identity and exact `b"untouched"` bytes. No `escape` entry was created. The junction was removed with nonrecursive `remove_dir`, then target identity/bytes were checked again before fixture cleanup.
+
+A junction guard removes the link itself before target fixture cleanup, including assertion unwinding. All new fixtures use nonrecursive cleanup only. No cleanup error was emitted during these runs.
+
+This establishes a static junction check only. Concurrent reparse transformations, symlink creation with the unavailable Win32 1314 privilege, mount points, root mappings, provider/UNC/removable/case-sensitive filesystems, real ACL denial and GUI/tab reconciliation remain pending. The original privilege-dependent symlink test remains unchanged and ignored; it was not retried.
+
+### P02b commands and outcomes
+
+Commands ran from `C:/SANDBOX/WORKTREES/mado-explorer/fs-create-rename`:
+
+```sh
+rustfmt --edition 2024 components/fs-create-rename/tests/diagnostics.rs
+cargo fmt --manifest-path components/fs-create-rename/Cargo.toml --check
+cargo test --locked --manifest-path components/fs-create-rename/Cargo.toml --target-dir target/p02 --no-run
+cargo test --locked --manifest-path components/fs-create-rename/Cargo.toml --target-dir target/p02 -- --nocapture
+cargo test --locked --manifest-path components/fs-create-rename/Cargo.toml --target-dir target/p02 --test diagnostics native_no_replace_variant_matrix -- --ignored --exact --nocapture
+cargo test --locked --manifest-path components/fs-create-rename/Cargo.toml --target-dir target/p02 --features unreviewed-native-rename --no-run
+task --taskfile components/fs-create-rename/Taskfile.yml test
+task --taskfile components/fs-create-rename/Taskfile.yml --list
+git diff --check
+git diff --exit-code HEAD -- components/fs-create-rename/src components/fs-create-rename/Cargo.toml components/fs-create-rename/Cargo.lock components/fs-create-rename/tests/safety.rs
+```
+
+- Formatting and both locked test-compilation modes passed. The first compile emitted two constant-pattern naming warnings in the new test; replacing the pattern with constant comparisons removed both. Final compilations were warning-free.
+- Default suite passed: 9 tests across unit/safety/diagnostics, 2 explicitly ignored probes. The added static junction test passed.
+- Exact ignored matrix ran once: 1 diagnostic test completed, all nine native outcomes recorded above. No rename acceptance claim.
+- `task test` FAILED as intended: the unchanged classic hard-link collision regression still reports `Ok(destination)`, `source_exists=false`, `destination_exists=true`, then fails at `tests/safety.rs:204`, collision kind 2. Experimental safety suite 12 passed, 1 failed, 1 ignored; unit and static junction checks passed, matrix ignored. Cargo exit 101; Task wrapper exit 201. This is a known unresolved production blocker, not a passing test run.
+- Task listing and whitespace checks passed. Read-only diff of source, manifest, lockfile and original safety test was empty. Git reported only its LF-to-CRLF notice for edited Markdown/YAML, not a whitespace defect.
+
+New `diagnostic:rename` task runs the exact ignored matrix with `--locked`. New `test:junction` task runs the static sentinel test with `--locked`. Existing `run`, `test` and `test:reparse` behavior is retained. Build-output cleanup was not run.
+
+No full F09/F02.4 or GUI criterion is satisfied by this slice. F09.4 remains blocked, rename remains disabled, and creation remains unpromoted. Next action is supervisor selection of a separately scoped approach or consequential decision, with the strict collision/case-only contract unchanged. Any proposed production fix requires focused race evidence and independent safety review before enablement.
