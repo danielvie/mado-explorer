@@ -1,0 +1,29 @@
+version: '3'
+
+# Standalone preparation tasks. Do not change the application's root Taskfile.
+tasks:
+  default:
+    desc: List visual preparation tasks
+    cmds:
+      - task --taskfile '{{.TASKFILE}}' --list
+
+  run:
+    desc: Exclusively claim and generate the retained V001 comparison fixture
+    cmds:
+      - node '{{.TASKFILE_DIR}}/fixture.mjs' run
+
+  validate:
+    desc: Read back retained fixture bytes, timestamps and manifest without launching applications
+    cmds:
+      - node '{{.TASKFILE_DIR}}/fixture.mjs' validate
+
+  test:
+    desc: Check deterministic fixtures and cleanup refusal with disposable owned test roots
+    cmds:
+      - node --check '{{.TASKFILE_DIR}}/fixture.mjs'
+      - node '{{.TASKFILE_DIR}}/fixture.mjs' test
+
+  clean:
+    desc: Remove only the fixed owned fixture after apps close; refuse unknown files, links or altered ownership
+    cmds:
+      - node '{{.TASKFILE_DIR}}/fixture.mjs' clean

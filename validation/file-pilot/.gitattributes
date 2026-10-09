@@ -1,0 +1,2 @@
+# Keep generator hashes stable across Windows autocrlf checkouts.
+* text eol=lf
