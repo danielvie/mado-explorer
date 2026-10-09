@@ -1,0 +1,28 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List read-only source-snapshot component tasks
+    cmds:
+      - task --list
+  run:
+    dir: ../..
+    desc: Self-check metadata capture on uniquely owned generated file and directory fixtures
+    cmds:
+      - cargo test --manifest-path components/fs-source-snapshot/Cargo.toml --target-dir target/p12 --locked --offline tests::file_and_directory_identity_unchanged -- --exact
+  test:
+    dir: ../..
+    desc: Run serial native snapshot and lexical admission checks, including handle closure
+    cmds:
+      - cargo test --manifest-path components/fs-source-snapshot/Cargo.toml --target-dir target/p12 --locked --offline -- --test-threads=1
+  check:
+    dir: ../..
+    desc: Check component formatting and compile all component targets
+    cmds:
+      - cargo fmt --manifest-path components/fs-source-snapshot/Cargo.toml --check
+      - cargo check --manifest-path components/fs-source-snapshot/Cargo.toml --target-dir target/p12 --locked --offline --all-targets
+  clean:
+    dir: ../..
+    desc: Remove only generated worktree root target/p12 build output
+    cmds:
+      - cargo clean --manifest-path components/fs-source-snapshot/Cargo.toml --target-dir target/p12
