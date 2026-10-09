@@ -23,6 +23,12 @@ tasks:
       - task test:drawer
       - task test:source
       - task test:pdf-service
+      - task test:pdf-controls
+
+  test:pdf-controls:
+    desc: Test accepted PDF page metadata, drafts and input epochs
+    cmds:
+      - cargo test --locked --manifest-path components/pdf-controls/Cargo.toml --target-dir target/p10
 
   test:pdf-service:
     desc: Test accepted background PDF routing and CPU buffer admission
