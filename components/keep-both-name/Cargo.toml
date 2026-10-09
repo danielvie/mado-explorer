@@ -1,0 +1,11 @@
+[package]
+name = "mado-keep-both-name"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[target.'cfg(windows)'.dependencies]
+mado-fs-source-snapshot = { path = "../fs-source-snapshot" }
+
+[workspace]

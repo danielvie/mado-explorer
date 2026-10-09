@@ -1,0 +1,28 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List read-only Keep both planner tasks
+    cmds:
+      - task --list
+  run:
+    dir: ../..
+    desc: Self-check collision planning on a uniquely owned generated fixture
+    cmds:
+      - cargo test --manifest-path components/keep-both-name/Cargo.toml --target-dir target/p13 --locked --offline tests::many_collisions_next_unused_and_planner_does_not_write -- --exact
+  test:
+    dir: ../..
+    desc: Run native naming, collision, error and observation regressions on owned fixtures
+    cmds:
+      - cargo test --manifest-path components/keep-both-name/Cargo.toml --target-dir target/p13 --locked --offline -- --test-threads=1
+  check:
+    dir: ../..
+    desc: Check component formatting and compile all component targets offline
+    cmds:
+      - cargo fmt --manifest-path components/keep-both-name/Cargo.toml --check
+      - cargo check --manifest-path components/keep-both-name/Cargo.toml --target-dir target/p13 --locked --offline --all-targets
+  clean:
+    dir: ../..
+    desc: Remove only generated worktree root target/p13 build output
+    cmds:
+      - cargo clean --manifest-path components/keep-both-name/Cargo.toml --target-dir target/p13
