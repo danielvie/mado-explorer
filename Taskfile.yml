@@ -12,9 +12,15 @@ tasks:
       - cargo run -- {{.CLI_ARGS}}
 
   test:
-    desc: Run automated Rust checks with disposable directory fixtures
+    desc: Run automated Rust checks and rolling workflow guard checks
     cmds:
       - cargo test
+      - task workflow:test
+
+  workflow:test:
+    desc: Check rolling workflow ownership and promotion guards without launching agents
+    cmds:
+      - node .pi/workflows/rolling-feature-wave.test.cjs
 
   test:fonts:
     desc: Run complete installed-font coverage on the Windows reference host
