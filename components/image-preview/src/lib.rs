@@ -1,9 +1,13 @@
 //! Synchronous, read-only PNG/JPEG/WebP decoding. Call from a worker, never the UI thread.
 //!
-//! Input, dimensions, RGBA output, and component-owned pixel buffers have strict admission
-//! checks. `max_decoder_bytes` is ONLY best-effort: image 0.25.10's JPEG and WebP adapters
-//! do not enforce it. This component does not yet satisfy a hard decoder-working-memory
-//! budget and must not be enabled as a fully bounded preview backend without resolving that gap.
+//! Input, dimensions and output admission includes the audited JPEG bulk-buffer phases.
+//! WebP chunk/frame preflight runs before dependency construction or orientation reads.
+//! PNG/WebP working allocations and JPEG metadata containers remain incompletely accounted.
+//! `max_decoder_bytes` is best-effort, not a hard allocator bound. This partial candidate
+//! must remain disabled in production until its remaining accounting gaps are resolved.
+
+mod admission;
+mod webp_preflight;
 
 use std::fmt;
 use std::fs::File;
@@ -20,8 +24,10 @@ pub struct DecodeLimits {
     pub max_width: u32,
     pub max_height: u32,
     pub max_output_bytes: u64,
-    /// Input + native decoded pixels + two RGBA buffers, excluding codec internals,
-    /// allocator overhead and small path/metadata values. Conservative peak admission.
+    /// Admission for input capacity, native pixels, conversion/orientation overlap,
+    /// and audited JPEG input/payload/coefficient/row buffers. NOT a complete CPU bound:
+    /// PNG/WebP working allocations and JPEG metadata containers remain unresolved.
+    /// See HANDOFF.md. Window-wide reservations/cache ownership belong to the caller.
     pub max_buffer_bytes: u64,
     /// Passed to image::Limits::max_alloc. Not a hard working-memory bound.
     pub max_decoder_bytes: u64,
@@ -134,6 +140,22 @@ fn decode_inner(path: &Path, limits: DecodeLimits) -> Result<Preview, ErrorKind>
         ImageFormat::WebP => Format::WebP,
         _ => return Err(ErrorKind::Unsupported),
     };
+    let input_capacity = input.capacity() as u64;
+    // Admission must precede into_decoder: image's JPEG constructor copies F bytes
+    // before dimensions are available, and WebP stores untrusted metadata ranges.
+    if format == Format::Jpeg {
+        admission::admit(
+            admission::jpeg_constructor(input_capacity, file_bytes)?,
+            limits.max_buffer_bytes,
+        )?;
+    }
+    if format == Format::WebP {
+        webp_preflight::validate(&input, limits)?;
+        let orientation_peak = input_capacity
+            .checked_add(file_bytes)
+            .ok_or(ErrorKind::Oversize("component buffer"))?;
+        admission::admit(orientation_peak, limits.max_buffer_bytes)?;
+    }
     let mut codec_limits = image::Limits::default();
     codec_limits.max_image_width = Some(limits.max_width);
     codec_limits.max_image_height = Some(limits.max_height);
@@ -152,12 +174,23 @@ fn decode_inner(path: &Path, limits: DecodeLimits) -> Result<Preview, ErrorKind>
     addressable(output_bytes)?;
     let native_bytes = decoder.total_bytes();
     addressable(native_bytes)?;
-    let peak = output_bytes
-        .checked_mul(2)
-        .and_then(|bytes| bytes.checked_add(native_bytes))
-        .and_then(|bytes| bytes.checked_add(file_bytes))
-        .ok_or(ErrorKind::Oversize("component buffer"))?;
-    check_bytes(peak, limits.max_buffer_bytes, "component buffer")?;
+    let peak = if format == Format::Jpeg {
+        admission::jpeg_peak(
+            input_capacity,
+            file_bytes,
+            encoded_width,
+            encoded_height,
+            native_bytes,
+            output_bytes,
+        )?
+    } else {
+        output_bytes
+            .checked_mul(2)
+            .and_then(|bytes| bytes.checked_add(native_bytes))
+            .and_then(|bytes| bytes.checked_add(input_capacity))
+            .ok_or(ErrorKind::Oversize("component buffer"))?
+    };
+    admission::admit(peak, limits.max_buffer_bytes)?;
     // Reject impossible native output even when a codec ignores max_alloc.
     check_bytes(native_bytes, limits.max_decoder_bytes, "decoder allocation")?;
     let orientation = decoder.orientation().map_err(codec_error)?;
@@ -172,7 +205,7 @@ fn decode_inner(path: &Path, limits: DecodeLimits) -> Result<Preview, ErrorKind>
     let decoded = DynamicImage::from_decoder(decoder).map_err(codec_error)?;
     let mut rgba = DynamicImage::ImageRgba8(decoded.into_rgba8());
     // Conversion and 90/270-degree rotation may each need an extra pixel buffer.
-    // Both were admitted above; codec-internal allocations remain the documented gap.
+    // Pixel overlap was admitted above. Remaining codec allocations are documented gaps.
     rgba.apply_orientation(orientation);
     let rgba = rgba.into_rgba8().into_raw();
     Ok(Preview {

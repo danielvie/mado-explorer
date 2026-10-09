@@ -98,6 +98,9 @@ name = "mado-image-preview"
 version = "0.1.0"
 dependencies = [
  "image",
+ "image-webp",
+ "png",
+ "zune-jpeg",
 ]
 
 [[package]]

@@ -258,11 +258,56 @@ fn input_dimension_output_peak_and_decoder_limits() {
         exact.max_width = 2;
         exact.max_height = 3;
         exact.max_output_bytes = 24;
-        // JPEG native RGB is 18 bytes; PNG/WebP native RGBA is 24.
-        exact.max_buffer_bytes =
-            bytes.len() as u64 + 48 + if format == Format::Jpeg { 18 } else { 24 };
-        assert_eq!(decode(&path, exact).unwrap().rgba.len(), 24);
+        // These are exact boundaries of the currently accounted phases, NOT
+        // evidence that unresolved codec allocations fit this budget.
+        exact.max_buffer_bytes = if format == Format::Jpeg {
+            3 * bytes.len() as u64 + 18 + 2048 * 4 * 4 + 8192 * 8 * 4
+        } else if format == Format::WebP {
+            (2 * bytes.len() as u64).max(bytes.len() as u64 + 48 + 24)
+        } else {
+            bytes.len() as u64 + 48 + 24
+        };
+        assert_eq!(
+            decode(&path, exact)
+                .unwrap_or_else(|error| panic!("{format:?} exact phase admission: {error:?}"))
+                .rgba
+                .len(),
+            24
+        );
+        exact.max_buffer_bytes -= 1;
+        assert!(matches!(
+            decode(&path, exact).unwrap_err().kind,
+            ErrorKind::Oversize(_)
+        ));
     }
+}
+
+#[test]
+fn jpeg_constructor_refuses_before_header_parsing() {
+    let fixture = Fixture::new();
+    // Signature but no valid headers. A decoder would report Malformed.
+    // Oversize proves constructor admission happened first, without large fixtures.
+    let bytes = [0xff, 0xd8, 0xff, 0x00];
+    let path = fixture.write("constructor.jpg", &bytes);
+    let mut budget = limits();
+    budget.max_buffer_bytes = 15; // F + max(F, 8) + metadata payload F requires 16
+    assert!(matches!(
+        decode(&path, budget).unwrap_err().kind,
+        ErrorKind::Oversize("component buffer")
+    ));
+    budget.max_buffer_bytes = 16;
+    assert!(matches!(
+        decode(&path, budget).unwrap_err().kind,
+        ErrorKind::Malformed(_)
+    ));
+
+    let bytes = encode(Format::Jpeg, None);
+    let path = fixture.write("valid.jpg", &bytes);
+    budget.max_buffer_bytes = 3 * bytes.len() as u64 - 1;
+    assert!(matches!(
+        decode(&path, budget).unwrap_err().kind,
+        ErrorKind::Oversize("component buffer")
+    ));
 }
 
 #[test]
