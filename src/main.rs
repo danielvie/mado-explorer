@@ -1,4 +1,5 @@
 mod directory;
+mod font_fallback;
 mod native;
 mod navigation;
 mod open;
@@ -19,6 +20,7 @@ fn main() -> eframe::Result {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let location = std::path::absolute(&location).unwrap_or(location);
+    let fonts = font_fallback::load_installed();
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
@@ -29,7 +31,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Mado Explorer",
         options,
-        Box::new(move |cc| Ok(Box::new(Explorer::new(cc, location)?))),
+        Box::new(move |cc| Ok(Box::new(Explorer::new(cc, location, fonts)?))),
     )
 }
 
@@ -42,6 +44,7 @@ struct Explorer {
     location_text: String,
     location_editor_focused: bool,
     location_error: Option<String>,
+    font_warning: Option<String>,
     filter_text: String,
     row_scroll_offset: f32,
     row_viewport_height: f32,
@@ -49,7 +52,11 @@ struct Explorer {
 }
 
 impl Explorer {
-    fn new(cc: &eframe::CreationContext<'_>, location: PathBuf) -> std::io::Result<Self> {
+    fn new(
+        cc: &eframe::CreationContext<'_>,
+        location: PathBuf,
+        fonts: font_fallback::InstalledFonts,
+    ) -> std::io::Result<Self> {
         let mut style = egui::Style::default();
         style.visuals = egui::Visuals::dark();
         style.spacing.item_spacing = egui::vec2(8.0, 3.0);
@@ -59,6 +66,7 @@ impl Explorer {
             egui::Stroke::new(1.0, egui::Color32::from_rgb(89, 215, 235));
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         cc.egui_ctx.set_global_style(style);
+        cc.egui_ctx.set_fonts(fonts.definitions);
         let context = cc.egui_ctx.clone();
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(move || context.request_repaint());
         let loader = DirectoryLoader::new(repaint.clone())?;
@@ -72,6 +80,7 @@ impl Explorer {
             location_text: native::display(location.as_os_str()),
             location_editor_focused: false,
             location_error: None,
+            font_warning: fonts.warning,
             filter_text: String::new(),
             row_scroll_offset: 0.0,
             row_viewport_height: 0.0,
@@ -252,6 +261,10 @@ impl Explorer {
     }
 
     fn status(&self, ui: &mut egui::Ui) {
+        if let Some(warning) = &self.font_warning {
+            ui.colored_label(egui::Color32::from_rgb(255, 180, 130), "Installed font fallback limited; some Unicode characters may appear as boxes. Hover for details.")
+                .on_hover_text(warning);
+        }
         if let Some(error) = &self.location_error {
             ui.colored_label(egui::Color32::from_rgb(255, 180, 130), error);
             ui.label("Location, history and selection retained. Edit the path and Go to retry.");
@@ -405,7 +418,7 @@ impl Explorer {
                     ("Modified (UTC)", Column::Modified), ("Size (bytes)", Column::Size),
                 ].into_iter().zip(columns) {
                     let arrow = if self.navigation.sort.column == column {
-                        if self.navigation.sort.descending { " ▼" } else { " ▲" }
+                        if self.navigation.sort.descending { " v" } else { " ^" }
                     } else { "" };
                     if table_cell(ui, width, egui::Button::new(format!("{heading}{arrow}")).frame(false).truncate())
                         .on_hover_text("Toggle sort direction. Folders first; unknown values last in each group.").clicked() {
@@ -1263,6 +1276,7 @@ mod tests {
                 location_text: "root".into(),
                 location_editor_focused: false,
                 location_error: None,
+                font_warning: None,
                 filter_text: String::new(),
                 row_scroll_offset: 0.0,
                 row_viewport_height: 0.0,
@@ -1340,6 +1354,7 @@ mod tests {
             location_text: "root".into(),
             location_editor_focused: false,
             location_error: None,
+            font_warning: None,
             filter_text: String::new(),
             row_scroll_offset: 0.0,
             row_viewport_height: 0.0,
@@ -1774,6 +1789,23 @@ mod tests {
         app.navigation.set_filter(String::new());
         accept_app_filter(&mut app);
         assert!(status_text(&app).contains("3 / 3 entries displayed"));
+    }
+
+    #[test]
+    fn s006a_sort_direction_feedback_uses_builtin_ascii_glyphs() {
+        let context = egui::Context::default();
+        let mut app = filter_app();
+        for expected in ["Name ^", "Name v"] {
+            let output = context.run_ui(egui::RawInput::default(), |ui| {
+                app.table(ui, false);
+                assert!(ui.fonts_mut(|fonts| {
+                    fonts.has_glyphs(&egui::FontId::proportional(14.0), expected)
+                }));
+            });
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == expected)));
+            output.drop_without_applying_deltas();
+            app.navigation.sort.toggle(Column::Name);
+        }
     }
 
     #[test]

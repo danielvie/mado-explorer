@@ -16,6 +16,11 @@ tasks:
     cmds:
       - cargo test
 
+  test:fonts:
+    desc: Run complete installed-font coverage on the Windows reference host
+    cmds:
+      - cargo test font_fallback::tests::s006a_installed_windows_loader_covers_japanese_and_common_unicode -- --ignored --exact
+
   design:
     desc: Open the editable layout in Mado Excalidraw
     cmds:

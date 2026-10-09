@@ -1,13 +1,14 @@
 # Mado Explorer
 
-S006: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
+S006a: a Windows-first, read-only directory browser using Rust 1.95+, eframe/egui
 and the wgpu renderer. This is a runnable slice, not the full release in SPEC.md.
 A working graphics adapter/driver is required.
 
 ```sh
 task run                         # browse the working directory
 task run -- "C:\path\to\folder"   # or: cargo run -- "C:\path\to\folder"
-task test                        # cargo test; disposable generated fixtures
+task test                        # portable default checks; disposable fixtures
+task test:fonts                  # explicit Windows reference-host font coverage
 task clean                       # removes target only
 task design                      # opens the Excalidraw reference
 task design-test                 # validates the reference
@@ -34,7 +35,8 @@ forward history. Refresh/startup failures show the current location's error stat
 including missing folders, with Up and Refresh still available.
 
 Click Name, Type, Modified or Size to sort; click the active heading again to
-reverse direction. Initially names are ascending. Folders stay first in both
+reverse direction. ASCII `^` means ascending and `v` means descending, without
+requiring optional symbol glyphs. Initially names are ascending. Folders stay first in both
 directions. Unknown sizes/times follow known values within each group in both
 directions. Equal values use ascending native name, then full native path, as the
 deterministic tie-breaker. Sorting uses native filesystem name ordering, not
@@ -120,6 +122,36 @@ not an editable path serialization: submitting the unchanged current diagnostic
 retains its native path; edited diagnostic input is rejected with recovery guidance.
 Use rows/breadcrumbs/Up or enter a Unicode folder path instead. No display text is
 used as a row action source; long/UNC prefixes remain native.
+
+Unicode rendering keeps egui's builtin Latin fonts first and appends a small fixed
+installed-Windows fallback chain for both proportional and monospace text. One
+startup load **before the native UI runs** gets the Fonts location using
+`SHGetKnownFolderPath(FOLDERID_Fonts)`; no hard-coded drive, directory scan, registry
+edits, downloads or proprietary font redistribution. It tries `msgothic.ttc` (or
+`YuGothR.ttc` if unavailable), `malgun.ttf`, `msyh.ttc`, `seguisym.ttf` and
+`seguihis.ttf`, using face zero for TTF/TTC. At most six fixed files are attempted,
+five retained, each at most 24 MiB, with at most 64 MiB of retained optional font
+payload. Reads are capped even if files grow. Parsing is validated on startup;
+epaint's internal font copies/caches and glyph atlas are additional memory, not
+included in that payload limit. No font-file I/O runs in UI updates.
+
+Missing/unreadable, oversized or unparseable optional fonts leave the builtin fonts
+and available fallbacks usable; a short visible warning offers hover details.
+Absence of one Japanese candidate is not a limitation if its alternative loads.
+Installed coverage varies by Windows edition/language assets. Tested on this host:
+Japanese/kana, common Chinese, Korean Hangul, Latin accents, Greek, Cyrillic and a
+supplementary Deseret letter (U+10437). This is not universal Unicode, every CJK
+extension, script-shaping, or provider/font-version support. Native names/action
+paths remain unchanged regardless of glyph coverage. The supervisor inspected an
+own-window native capture showing readable Japanese names and ASCII sort markers;
+other glyphs, scaling and Narrator remain pending. Headless charmap checks alone
+are not a visual acceptance claim.
+
+`task test` checks portable behavior, including graceful absence of optional fonts.
+The complete installed-font coverage assertion is an explicitly opt-in reference-host
+probe, `task test:fonts`; its assertions are unchanged. The default Rust run reports
+that host-dependent probe as ignored, not passed. Run it on the prepared Windows
+reference host before claiming its broader installed-font coverage.
 
 The table shows immediate entries only, modification timestamps in UTC, and
 regular-file sizes in bytes. `—` means unknown/not applicable, never zero folder
@@ -265,4 +297,10 @@ verbatim long-path enumeration, and typed-path rejection/recovery. These fixture
 passed on this Windows environment without ignored/unsupported cases; they do not
 establish support on every filesystem or network provider. Missing-file preflight
 returns before calling the shell. These are not a foreground-capture or interactive GUI acceptance claim.
+S006a adds installed-font charmap/priority and missing-font/budget checks, plus
+headless ASCII sort-direction feedback. Its first coverage check exposed an
+epaint 0.36.2 `has_glyphs` false-negative: it compares resolved and replacement face
+IDs, so supported characters on that same face can report missing. Coverage tests
+use the public `Font::characters()` charmap instead, asserting every sample code
+point in both families without treating replacement glyphs as name coverage.
 No destructive operations or personal-folder checks are needed for this slice.
