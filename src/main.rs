@@ -22,6 +22,10 @@ mod tab_drag_tests;
 #[cfg(test)]
 mod tab_tests;
 mod tabs;
+#[cfg(windows)]
+mod watch_adapter;
+#[cfg(all(test, windows))]
+mod watch_tests;
 mod workspace;
 
 use directory::{DirectoryLoader, EntryKind, Status};
@@ -74,6 +78,8 @@ fn main() -> eframe::Result {
 }
 
 struct Explorer {
+    #[cfg(windows)]
+    watch: watch_adapter::WatchAdapter,
     loader: DirectoryLoader,
     sorter: Sorter,
     launcher: Launcher,
@@ -127,6 +133,8 @@ impl Explorer {
             )
         })?;
         let mut app = Self {
+            #[cfg(windows)]
+            watch: watch_adapter::WatchAdapter::production(),
             loader,
             sorter,
             launcher: Launcher::default(),
@@ -304,7 +312,7 @@ impl Tab {
         (editing, command)
     }
 
-    fn footer(&mut self, ui: &mut egui::Ui) -> bool {
+    fn footer(&mut self, ui: &mut egui::Ui, watch_enabled: bool) -> bool {
         let mut editing = egui::Popup::is_any_open(ui.ctx());
         let shared_band = ui.available_width() >= 660.0;
         let filter_id = self.widget_id("filter");
@@ -338,17 +346,22 @@ impl Tab {
                 self.navigation.set_filter(self.filter_text.clone());
             }
             if shared_band {
-                self.footer_details(ui);
+                self.footer_details(ui, watch_enabled);
             }
         });
         if !shared_band {
-            ui.horizontal(|ui| self.footer_details(ui));
+            ui.horizontal(|ui| self.footer_details(ui, watch_enabled));
         }
         editing || egui::Popup::is_any_open(ui.ctx())
     }
 
-    fn footer_details(&mut self, ui: &mut egui::Ui) {
+    fn footer_details(&mut self, ui: &mut egui::Ui, watch_enabled: bool) {
         ui.menu_button("View", |ui| {
+            ui.label(if watch_enabled {
+                "Directory notifications: see status above the table. Refresh/F5 remains available."
+            } else {
+                "Notifications disabled; refresh manually (F5). Native capability approval pending."
+            });
             let mut show = self.navigation.show_hidden_system;
             if ui.checkbox(&mut show, "Show hidden/system entries")
                 .on_hover_text("Hidden and system entries are hidden by default. This affects immediate entries only; no links are followed.")
@@ -362,7 +375,12 @@ impl Tab {
             .max_width(ui.available_width())
             .auto_shrink([false, true])
             .show(ui, |ui| {
-                ui.horizontal(|ui| self.counts(ui));
+                ui.horizontal(|ui| {
+                    self.counts(ui);
+                    if !watch_enabled {
+                        ui.label("Notifications off; F5").on_hover_text("Notifications disabled; refresh manually (F5). Required native capability probes/authority pending; no notification service is running.");
+                    }
+                });
             });
     }
 
@@ -1523,6 +1541,8 @@ mod tests {
     pub(super) fn test_app(location: PathBuf) -> Explorer {
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
         Explorer {
+            #[cfg(windows)]
+            watch: watch_adapter::WatchAdapter::production(),
             loader: DirectoryLoader::new(repaint.clone()).unwrap(),
             sorter: Sorter::new(repaint).unwrap(),
             launcher: Launcher::default(),
@@ -2122,6 +2142,17 @@ impl eframe::App for Explorer {
             ctx.request_repaint();
         }
         self.persistence_logic(ctx, frame);
+        #[cfg(windows)]
+        {
+            if self.persistence.is_closing() {
+                self.watch.drain();
+            }
+            // Bounded mailbox/control drain, NOT filesystem polling. No callback
+            // is exposed by the driver; inactive UI still observes native reports.
+            if self.watch.needs_tick() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -2129,6 +2160,8 @@ impl eframe::App for Explorer {
     }
 
     fn on_exit(&mut self) {
+        #[cfg(windows)]
+        self.watch.stop();
         self.persistence_exit();
     }
 }
