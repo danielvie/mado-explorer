@@ -108,3 +108,28 @@ F13.6/F10.1/F02.4 remain backend-only partial coverage. Fresh independent review
 - Caller-owned background-service routing, queue integration, source identity revalidation, fixed Paste destination and conflicts/cancellation/partial operations.
 - Permission-gated actual Explorer copy/cut/paste interoperability, real busy/delayed-rendering/close failures, cross-process publication and cancellation/conflict manual checks. None passed or skipped as evidence. Do not enable a probe without explicit operator approval to access/replace the personal clipboard.
 - No generic clipboard backup/restore guarantee, physical filesystem identity guarantee, outbound drag/drop or non-Windows support.
+
+## P19 UNC namespace-name compatibility
+
+Checkout `C:/SANDBOX/WORKTREES/mado-explorer/file-clipboard`, branch `lane/file-clipboard`, verified clean baseline `15a3741815b6acda321b5ee4988062ede94194b9`. Read-only supervisor context: `C:/SANDBOX/REPOS/mado-explorer.git/PROGRESS.md` S016 P19, AGENTS/SPEC/CONTEXT/LANES and accepted P16 source/handoff. Only this handoff, `src/lib.rs` and `src/tests.rs` changed.
+
+UNC hosts/shares now use spelling validation without the local DOS-filename stem guard, matching P16's namespace distinction. Empty/dot/parent/control/NUL/invalid-punctuation/stream spellings and ordinary trailing-dot/space aliases remain refused. Local and UNC-tail filenames retain DOS-device refusal, including verbatim paths. Exact case-insensitive UNC `pipe` share rejection and GLOBALROOT/device namespace rejection are unchanged. No normalization or fallback added; verbatim literal trailing-dot/space policy is unchanged, not a provider-alias claim. `src/native.rs` remains byte-for-byte untouched.
+
+Commands ran from that exact checkout, with the existing `target/p05` cache:
+
+```text
+cargo test --locked --offline --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05 unc_namespace
+cargo fmt --manifest-path components/file-clipboard/Cargo.toml
+cargo fmt --check --manifest-path components/file-clipboard/Cargo.toml
+cargo check --locked --offline --all-targets --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05
+cargo test --locked --offline --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05 unc_namespace
+cargo test --locked --offline --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05
+git diff --exit-code 15a3741815b6acda321b5ee4988062ede94194b9 -- components/file-clipboard/src/native.rs
+git diff --check
+```
+
+First focused run, before production edits, exited 101: positive regression failed at `tests.rs:396` with `snapshot \\CON\COM1: InvalidPath`; negative regression passed, fifteen existing tests filtered out. After one correction, both focused tests pass. Formatting, locked/offline all-target compile, full seventeen tests and zero doctests pass, none ignored. Native-file and whitespace diffs pass; Git reports only LF-to-CRLF warnings. All fifteen existing tests/assertions remain unchanged.
+
+New generated-only coverage checks ordinary/verbatim DOS-like UNC host/share roots and descendants, both Copy/Move actions and exact native units through snapshots, raw UTF-16, ASCII native-ACP decoding and encoded roundtrip. Unpaired-surrogate identity is checked through wide paths. Negative coverage retains filename, malformed namespace, stream/control/separator and pipe-share/ordinary alias guards with DOS-like namespaces.
+
+Proposed coverage is lexical backend compatibility only. No source filesystem/network/global clipboard access, app launch/window/elevation, native transport probe, root suite, dependency/configuration edits or cache cleanup occurred. Existing owned-memory component checks ran. This establishes neither live remote host/share validity nor full F13.6/F10.1/F02.4, Explorer interoperability or production capability. Fresh exact-head independent review, supervisor approval/integration and pending platform/application gates remain required; no acceptance statuses changed.

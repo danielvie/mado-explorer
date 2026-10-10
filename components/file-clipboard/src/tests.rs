@@ -375,6 +375,136 @@ fn unc_pipe_share_guard_preserves_filesystem_paths_and_native_identity() {
 }
 
 #[test]
+fn unc_namespace_dos_names_preserve_native_units_and_action() {
+    for prefix in ["\\\\", "\\\\?\\UNC\\"] {
+        for (server, share) in [
+            ("CON", "COM1"),
+            ("NUL", "LPT1"),
+            ("conin$", "CONOUT$"),
+            ("PRN.txt", "AUX .txt"),
+        ] {
+            for tail in ["", "\\entry.txt"] {
+                let value = format!("{prefix}{server}\\{share}{tail}");
+                let expected: Vec<u16> = value.encode_utf16().collect();
+                let mut terminated = expected.clone();
+                terminated.extend([0, 0]);
+                // Generated ASCII exercises native ACP without a remote filesystem call.
+                let mut ansi = value.as_bytes().to_vec();
+                ansi.extend([0, 0]);
+                for intent in [Intent::Copy, Intent::Move] {
+                    let snapshot = FilePacket::snapshot(&[path(&value)], intent)
+                        .unwrap_or_else(|error| panic!("snapshot {value}: {error}"));
+                    let effect = snapshot.encode_preferred_effect();
+                    for packet in [
+                        snapshot.clone(),
+                        decode_packet(&raw_wide(&terminated), Some(&effect)).unwrap(),
+                        decode_packet(&raw_ansi(&ansi), Some(&effect)).unwrap(),
+                        decode_packet(&snapshot.encode_hdrop().unwrap(), Some(&effect)).unwrap(),
+                    ] {
+                        assert_eq!(packet.paths().len(), 1);
+                        assert_eq!(
+                            packet.paths()[0]
+                                .as_os_str()
+                                .encode_wide()
+                                .collect::<Vec<_>>(),
+                            expected,
+                            "changed {value}"
+                        );
+                        assert_eq!(packet.intent(), intent);
+                        assert_eq!(packet.warning(), None);
+                    }
+                }
+            }
+        }
+    }
+    // DOS-like namespace names do not change lossless ill-formed UTF-16 handling.
+    for prefix in ["\\\\CON\\NUL\\", "\\\\?\\UNC\\COM1\\LPT1\\"] {
+        let mut units: Vec<u16> = prefix.encode_utf16().collect();
+        units.extend([0xd800, 0x0061, 0xdc00]);
+        let snapshot = FilePacket::snapshot(&[wide_path(&units)], Intent::Move).unwrap();
+        let mut terminated = units.clone();
+        terminated.extend([0, 0]);
+        let effect = snapshot.encode_preferred_effect();
+        for packet in [
+            snapshot.clone(),
+            decode_packet(&raw_wide(&terminated), Some(&effect)).unwrap(),
+            decode_packet(&snapshot.encode_hdrop().unwrap(), Some(&effect)).unwrap(),
+        ] {
+            assert_eq!(packet.paths().len(), 1);
+            assert_eq!(
+                packet.paths()[0]
+                    .as_os_str()
+                    .encode_wide()
+                    .collect::<Vec<_>>(),
+                units
+            );
+            assert_eq!(packet.intent(), Intent::Move);
+            assert_eq!(packet.warning(), None);
+        }
+    }
+}
+
+#[test]
+fn unc_namespace_relaxation_keeps_filename_and_endpoint_guards() {
+    let mut rejected = Vec::new();
+    for prefix in [
+        "C:\\",
+        "\\\\?\\C:\\",
+        "\\\\CON\\NUL\\",
+        "\\\\?\\UNC\\COM1\\LPT1\\",
+    ] {
+        for filename in [
+            "CON", "NUL.txt", "COM1", "LPT1", "CONIN$", "CONOUT$", "AUX .txt",
+        ] {
+            rejected.push(format!("{prefix}{filename}"));
+        }
+    }
+    for value in [
+        "\\\\\\NUL\\file",
+        "\\\\CON\\",
+        "\\\\.\\NUL\\file",
+        "\\\\CON\\..\\file",
+        "\\\\CON.\\NUL\\file",
+        "\\\\CON\\NUL \\file",
+        "\\\\CON:stream\\NUL\\file",
+        "\\\\CON\\NUL:stream\\file",
+        "\\\\CON\\NU\u{1}L\\file",
+        "\\\\CON\\NU*L\\file",
+        "\\\\?\\UNC\\.\\NUL\\file",
+        "\\\\?\\UNC\\CON\\..\\file",
+        "\\\\?\\UNC\\CON/NUL\\file",
+        "\\\\?\\UNC\\CON\\NUL/file",
+        "\\\\?\\UNC\\CON\\NUL:stream\\file",
+        "\\\\CON\\PiPe\\file",
+        "\\\\CON\\pipe.\\file",
+        "\\\\CON\\pipe \\file",
+        "\\\\?\\UNC\\NUL\\pIpE\\file",
+        "\\\\?\\GLOBALROOT\\Device\\NUL",
+        "\\\\?\\pipe\\NUL",
+    ] {
+        rejected.push(value.to_owned());
+    }
+    for value in rejected {
+        assert!(
+            FilePacket::snapshot(&[path(&value)], Intent::Move).is_err(),
+            "accepted {value}"
+        );
+        let mut units: Vec<u16> = value.encode_utf16().collect();
+        units.extend([0, 0]);
+        let mut ansi = value.as_bytes().to_vec();
+        ansi.extend([0, 0]);
+        assert!(
+            decode_packet(&raw_wide(&units), None).is_err(),
+            "decoded wide {value}"
+        );
+        assert!(
+            decode_packet(&raw_ansi(&ansi), None).is_err(),
+            "decoded ACP {value}"
+        );
+    }
+}
+
+#[test]
 fn ansi_uses_native_acp_and_requires_complete_list() {
     let decoded = decode_packet(
         &raw_ansi(b"C:\\first\0\\\\server\\share\\second\0\0"),

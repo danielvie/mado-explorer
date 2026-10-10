@@ -418,8 +418,9 @@ fn unc_remainder(units: &[u16], verbatim: bool) -> Result<&[u16], CodecError> {
     if server.is_empty() || share.is_empty() {
         return Err(CodecError::InvalidNamespace);
     }
-    validate_component(server, verbatim)?;
-    validate_component(share, verbatim)?;
+    // UNC host/share names are namespace components, not local DOS filenames.
+    validate_component_spelling(server, verbatim)?;
+    validate_component_spelling(share, verbatim)?;
     // The UNC pipe share is a device namespace, not a filesystem share.
     if ascii_eq(share, "pipe") {
         return Err(CodecError::InvalidNamespace);
@@ -431,8 +432,9 @@ fn unc_remainder(units: &[u16], verbatim: bool) -> Result<&[u16], CodecError> {
     })
 }
 
-fn validate_component(part: &[u16], verbatim: bool) -> Result<(), CodecError> {
-    if ascii_eq(part, ".")
+fn validate_component_spelling(part: &[u16], verbatim: bool) -> Result<(), CodecError> {
+    if part.is_empty()
+        || ascii_eq(part, ".")
         || ascii_eq(part, "..")
         || part
             .iter()
@@ -441,6 +443,11 @@ fn validate_component(part: &[u16], verbatim: bool) -> Result<(), CodecError> {
     {
         return Err(CodecError::InvalidPath);
     }
+    Ok(())
+}
+
+fn validate_component(part: &[u16], verbatim: bool) -> Result<(), CodecError> {
+    validate_component_spelling(part, verbatim)?;
     // Refuse DOS device aliases even under verbatim namespaces. No device I/O.
     let stem = part.split(|u| *u == 46).next().unwrap();
     let end = stem.iter().rposition(|u| *u != 32).map_or(0, |i| i + 1);
