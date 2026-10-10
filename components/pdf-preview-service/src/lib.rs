@@ -53,11 +53,54 @@ impl CpuBudget {
         }
         Err(Failure::Busy)
     }
+    /// Reserve capacity on this same counter without allocating a byte buffer.
+    /// For external resources, the caller must retain the reservation until the
+    /// resource is actually freed, including waiting for a helper's actual exit.
+    pub fn reserve_capacity(&self, bytes: usize) -> Result<CpuReservation, Failure> {
+        Ok(CpuReservation {
+            lease: self.reserve(bytes)?,
+        })
+    }
     /// Optional caller-owned CPU copies. Admission precedes allocation, and the
     /// returned buffer cannot surrender its Vec. GUI-owned allocations still need
     /// integration accounting; this does not charge egui conversion/upload/cache.
     pub fn allocate(&self, bytes: usize) -> Result<CpuBuffer, Failure> {
-        let lease = self.reserve(bytes)?;
+        self.reserve_capacity(bytes)?.into_buffer(bytes)
+    }
+}
+
+/// Non-cloneable capacity charge, with no byte allocation or owned buffer export.
+/// Dropping it refunds the charge. Conversion consumes it exactly once:
+///
+/// ```compile_fail
+/// let budget = mado_pdf_preview_service::CpuBudget::new();
+/// let reservation = budget.reserve_capacity(64).unwrap();
+/// let first = reservation.into_buffer(16).unwrap();
+/// let second = reservation.into_buffer(16).unwrap(); // Already moved.
+/// ```
+///
+/// ```compile_fail
+/// let budget = mado_pdf_preview_service::CpuBudget::new();
+/// let reservation = budget.reserve_capacity(64).unwrap();
+/// let duplicate = reservation.clone(); // Reservations cannot be cloned.
+/// ```
+#[derive(Debug)]
+pub struct CpuReservation {
+    lease: Lease,
+}
+impl CpuReservation {
+    pub fn charged_bytes(&self) -> usize {
+        self.lease.bytes
+    }
+    /// Allocate a zero-filled buffer within this reservation, without admitting
+    /// a second charge. Oversize returns BudgetExceeded before allocation.
+    /// All errors consume and refund the reservation; success refunds only the
+    /// unused capacity after the real buffer exists. This does not copy or free
+    /// an external resource: it must be freed before this conversion is invoked.
+    pub fn into_buffer(mut self, bytes: usize) -> Result<CpuBuffer, Failure> {
+        if bytes > self.lease.bytes {
+            return Err(Failure::BudgetExceeded);
+        }
         let mut pixels = Vec::new();
         pixels
             .try_reserve_exact(bytes)
@@ -65,12 +108,14 @@ impl CpuBudget {
         pixels.resize(bytes, 0);
         // Global Vec<u8>::try_reserve_exact retains the requested capacity on the
         // supported Rust/Windows allocator. Validate that backend/stdlib contract.
-        if pixels.capacity() > bytes {
+        if pixels.capacity() != bytes {
+            drop(pixels);
             return Err(Failure::BufferContract);
         }
+        self.lease.shrink(pixels.capacity());
         Ok(CpuBuffer {
             pixels: Some(pixels),
-            lease,
+            lease: self.lease,
         })
     }
 }

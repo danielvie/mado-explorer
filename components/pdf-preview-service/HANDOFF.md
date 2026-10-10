@@ -1,5 +1,61 @@
 # PDF preview service handoff
 
+## P20 shared CPU reservation prerequisite
+
+Checkout C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport, branch lane/raster-viewport. Verified HEAD 6a28fbd9e2c4f2ddd0467d2b8b8f9899e1690fca and clean status before edits. Read live root AGENTS.md, SPEC.md, CONTEXT.md, PROGRESS.md S016/P20 and LANES.md read-only. Changed only components/pdf-preview-service/src/lib.rs, src/tests.rs and this HANDOFF.md. Terminal SHA is returned separately for fresh exact-head safety review; no self-approval or integration.
+
+### Public API and lifetime proof
+
+- CpuBudget::reserve_capacity(bytes) returns an opaque, non-cloneable CpuReservation wrapping the existing private Lease. It allocates no byte buffer and creates no second counter. It calls the unchanged checked, eight-attempt CAS admission, preserving BudgetExceeded/Busy behavior and the fixed 256 MiB ceiling. CpuBudget clones, public allocate, working source/output leases and caller-held frames all charge the same counter.
+- CpuReservation::charged_bytes() observes its immutable charge. Drop refunds it once. There is no split, resize, reassignment, clone, owned Vec export or raw buffer API.
+- CpuReservation::into_buffer(bytes) consumes ownership on success or error. A request larger than its charge returns Failure::BudgetExceeded before allocation, including usize::MAX. Zero bytes remain valid, matching allocate. The reservation stays fully charged throughout Vec::try_reserve_exact and zero initialization. Conversion takes no second admission.
+- The supported std Global Vec contract is unchanged from the accepted allocator proof recorded below. After initialization, conversion checks capacity equals requested bytes, explicitly destroys an invalid buffer before returning BufferContract, then shrinks the original lease to actual capacity only after the valid real allocation exists. Success moves that same lease into the existing CpuBuffer. Public allocate delegates to this path without changing its signature or errors.
+- If try_reserve_exact returns an error, AllocationFailed propagates. Rust destroys the local Vec before the self argument's Lease, refunding the full charge. There is no counter decrement before allocation or duplicated lease owner. Public oversize failures likewise consume/refund the reservation. No unsafe allocation or allocator change was introduced.
+- CpuBuffer's existing destructor still takes and destroys its Vec before automatic Lease field destruction refunds the actual capacity. Returned slices remain borrowed; no buffer can surrender its allocation. Service request/routing/render/concurrency/native ABI, SOURCE_RESERVATION=67,125,248 and all twenty previous test assertions are unchanged.
+
+External-resource lifetime is a caller obligation, not enforced here. A later helper controller must retain its charge until actual process exit. It must free the charged external resource before consuming the reservation into a buffer, or separately reserve any simultaneous resource/output overlap. This API does not own a process, copy helper output or prove a native cap.
+
+### Focused evidence
+
+Five new built-in unit checks use metadata-sized logical reservations and actual buffers no larger than 64 bytes:
+
+1. Nonallocating 128 MiB reservation, shared cross-clone allocation exhaustion, drop and reuse. The reservation's size equals the existing Lease's size; no helper-sized Vec is created.
+2. Conversion at fully charged 256 MiB succeeds without double admission, shrinks to the actual 32-byte capacity, initializes/writes borrowed slices and releases each retained charge once. Exact seven-byte conversion also works.
+3. Failed over-limit and checked-add-overflow admission leave an existing seven-byte allocation charged. Oversize/usize::MAX conversion consumes and refunds only its own reservation. Zero-byte conversion and invalid zero-charge conversion conserve totals without panic.
+4. A complete-destructor source guard pins free-before-field-refund ordering, complemented by 100 small transfer/drop/reuse cycles. This is a structural regression guard and runtime counter check, not instrumented allocator deallocation or physical-memory measurement.
+5. A logical external 128 MiB charge coexists with controlled service source admission and two held 16-byte frames, including full-budget refusal and charges retained across actual worker join.
+
+Two compile-fail doc checks reject reservation cloning and a second conversion after move. No forced allocator/OOM failure or altered allocator contract was exercised; AllocationFailed/BufferContract cleanup follows the inspected ownership proof above. No dangerous allocations, helper/native process probes or native-cap evidence are claimed.
+
+### Exact commands and outcomes
+
+All commands ran from C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport:
+
+```sh
+git rev-parse HEAD
+git status --short
+git branch --show-current
+cargo fmt --check --manifest-path components/pdf-preview-service/Cargo.toml
+cargo fmt --manifest-path components/pdf-preview-service/Cargo.toml
+cargo fmt --check --manifest-path components/pdf-preview-service/Cargo.toml
+cargo check --locked --offline --all-targets --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11 p20_ -- --nocapture
+cargo test --locked --offline --manifest-path components/pdf-preview-service/Cargo.toml --target-dir target/p11
+git diff --check
+git diff --stat
+git diff -- components/pdf-preview-service/src/lib.rs components/pdf-preview-service/src/tests.rs
+```
+
+Initial formatting check exited 1 for three new test statements needing wrapping. Applied rustfmt; final formatting and locked offline all-target incremental compile pass. Focused tests pass five, with twenty existing tests filtered out and native integration test filtered out. Full default suite passes all twenty-five unit tests and both compile-fail doc tests, zero failures; the existing opt-in native integration check is explicitly ignored. Diff check passes with only the existing LF-to-CRLF Git notice. No compile/test failures, repeated fix attempts, dropped assertions or weakened bounds. The default missing-library test still uses its own generated empty directory and loads no DLL.
+
+The final owned handoff/staged diff checks and commit are performed after this record; the terminal response supplies their outcome and full SHA. No native opt-in command ran during P20. P14 evidence below is historical, not rerun here.
+
+### Limits and next gate
+
+P20 implements only the assigned shared-accounting prerequisite for partial F07.4/F07.6/F08.5. Image decoding/allocation containment, helper protocol/controller/process lifetime, Job Object native cap/cancellation evidence, source acquisition, GUI adapters/conversion/cache/upload and shared 128 MiB GPU accounting remain incomplete. No codec/parser/dependency/manifest/lock/Taskfile/root/sibling change, app build, target cleanup, clipboard/personal-data access or production preview enablement. Acceptance statuses remain supervisor-owned. Fresh exact-head budget/lifetime review and supervisor promotion/validation are required before dependent work.
+
+Everything below is retained historical P14/P11 evidence.
+
 ## P14 public Service native integration check
 
 Checkout C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport, branch lane/raster-viewport. Clean accepted starting HEAD f522f04ebc35dffdab2525c3614c782d091abe2e. Changes are restricted to components/pdf-preview-service/tests/native_service.rs, Taskfile.yml and this HANDOFF.md. No production source, dependency/lock, root/shared/sibling edits, redistribution, GUI/GPU, clipboard, elevation, personal-document access or enablement. The existing PDF artifact lane was read-only. Terminal SHA is reported separately for fresh exact-head review; no self-approval or integration.
