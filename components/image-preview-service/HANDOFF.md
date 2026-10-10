@@ -85,3 +85,32 @@ Historical failed checks retained honestly:
 Original old checkout was separately rechecked at clean `beae3769906bcec2d7309dd09e88d4d02892708c`. Its decoder/admission/WebP audit and handoff remain untouched at [P01b](C:/SANDBOX/WORKTREES/mado-explorer/image-preview/components/image-preview/HANDOFF.md), preserved `beae376` / `archive/p01-unbounded-legacy`. That old public decoder must never execute in the parent/root app. New private decoder comments retain its attribution and best-effort allocation caveat. `image=0.25.10`, `image-webp=0.2.4`, `png=0.18.1`, `zune-jpeg=0.5.15` remain pinned. No codec fork/vendor copy or foreign binary was added. Upstream codec/transitive notices and packaged-helper licensing/redistribution checks remain pending packaging work; do not discard their notices. The accepted PDF reservation API is an unchanged read-only dependency; no PDFium renderer is initialized by this backend.
 
 Backend portions of F07.1/F07.2/F07.3/F07.4/F07.6 have end-to-end evidence here. Full criteria remain incomplete. Fresh unsafe-code/protocol/shared-budget review is required before promotion. Actual GUI selection/pane routing, fit/100%/zoom/pan integration, cache eviction, GPU 128 MiB and staging accounting, DPI/Narrator/File Pilot, deployment/packaging and personal-data enablement remain pending. WebP fixtures are lossless; lossy WebP and animated PNG/WebP default-frame end-to-end fixtures remain unexecuted, as in the retained legacy notice. UNC/network/provider, maximum long-path and hostile deployment checks were not executed; conservative path policies and fail-closed native setup remain visible limits. No supervisor status/tracker edits or self-approval.
+
+## P21-R01 relative UNC admission correction
+
+Started clean on `lane/image-capped-service` at `1f00d57483f10683779d6bca44e89d87859f8bfb` in the exact checkout above. Only `src/source.rs` and this handoff changed. Root P21-R01 commission, AGENTS, SPEC and CONTEXT were read-only.
+
+Accounting review `186df890` found that `admit` stripped optional `\\?\` without retaining its presence. Static relative input `UNC\server\share\x.png` then matched the case-insensitive `UNC\` branch and became absolute NT `\??\UNC\server\share\x.png`. `Service::request` used this guard, so the original admission could select an unrelated network source. No network access was used to reproduce the defect.
+
+The guard now remembers the actual verbatim prefix and requires it for the `UNC\` branch. Ordinary double-backslash UNC and verbatim UNC remain admitted. No normalization, spelling compatibility expansion, API, decoder export, process/controller, budget, IPC or native open change. Parent and private helper still import the same `source.rs`. Private helper main/decoder/probe code and all 23 original test executions are unchanged. Existing device/pipe/ADS/dot/trailing/DOS, bounds, non-directory and nonfollowing guards remain unchanged.
+
+Two inline pure tests cover bare uppercase/lowercase/mixed-case `UNC\` rejection and exact ordinary/verbatim UNC output, including mixed-case verbatim prefixes and separated unpaired high/low UTF-16 units. They call only `admit`, never `Service`, `open` or any filesystem/network function. Existing namespace/native-unit assertions remain intact.
+
+Commands ran from `C:/SANDBOX/WORKTREES/mado-explorer/image-capped-service`:
+
+```text
+cargo test --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 relative_unc_is_rejected_before_io -- --nocapture
+cargo fmt --manifest-path components/image-preview-service/Cargo.toml --check
+cargo check --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --all-targets
+cargo test --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 source::tests -- --nocapture
+cargo build --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --bins
+cargo test --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 -- --nocapture
+git diff --check
+git diff --cached --check
+```
+
+Red on original guard: exit 101, one failed library test at the bare uppercase input, no native I/O. Green after correction: six focused source executions pass, three per parent/helper. Formatting, locked offline all-target compile and binary build pass. One coherent final full run passes 19 library + 8 helper tests, 27 total, zero ignored. This retains the original 17 + 6 and adds two tests compiled in each binary. Expected caught pending-unwind panic remains a passing check. Full diff inspected; no other source/config/lock/build-task changes.
+
+Native evidence comes only from the unchanged owned tests, not from the lexical UNC tests. The existing hard-capped helper refused its bounded 144 MiB VirtualAlloc attempt with 1455 under the unchanged 128 MiB Job cap; this run's Job peak was 69,038,080 bytes. Existing setup-before-resume, crash/allocator-exit, cancellation/reap, private-handle and read-only/nonfollowing checks pass. No new native case or larger allocation was introduced; the standalone self-check was not rerun.
+
+SourceNS limits remain conservative: <=32766 native path units including resulting NT spelling, no live UNC/provider/maximum-path compatibility evidence. Source namespaces are admission policy, not a user-token security sandbox. No personal/network/UI/clipboard/elevation/foreign-executable probe, tracker change, app-preview enablement or full F07 claim. Corrected-head namespace review, supervisor approval and promotion remain pending. Original native review `529b25b5` does not waive that source gate.

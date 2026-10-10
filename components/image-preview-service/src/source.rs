@@ -68,7 +68,8 @@ pub fn admit(units: &[u16]) -> Result<Vec<u16>, ()> {
         return Err(());
     }
     let mut s = units;
-    if s.starts_with(&[92, 92, 63, 92]) {
+    let verbatim = s.starts_with(&[92, 92, 63, 92]);
+    if verbatim {
         s = &s[4..];
     }
     let drive = s.len() >= 3
@@ -78,7 +79,7 @@ pub fn admit(units: &[u16]) -> Result<Vec<u16>, ()> {
         (false, &s[3..])
     } else if s.starts_with(&[92, 92]) {
         (true, &s[2..])
-    } else if s.len() >= 4 && eq(&s[..4], "UNC\\") {
+    } else if verbatim && s.len() >= 4 && eq(&s[..4], "UNC\\") {
         (true, &s[4..])
     } else {
         return Err(());
@@ -167,6 +168,32 @@ pub fn open(units: &[u16]) -> Result<File, u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn relative_unc_is_rejected_before_io() {
+        for s in [
+            "UNC\\server\\share\\x.png",
+            "unc\\server\\share\\x.png",
+            "uNc\\server\\share\\x.png",
+        ] {
+            assert!(admit(&s.encode_utf16().collect::<Vec<_>>()).is_err(), "{s}");
+        }
+    }
+    #[test]
+    fn absolute_unc_preserves_native_units() {
+        let filename = [0xd800, 120, 0xdc00, 233, 46, 112, 110, 103];
+        let mut expected: Vec<u16> = "\\??\\UNC\\server\\share\\".encode_utf16().collect();
+        expected.extend_from_slice(&filename);
+        for prefix in [
+            "\\\\server\\share\\",
+            "\\\\?\\UNC\\server\\share\\",
+            "\\\\?\\unc\\server\\share\\",
+            "\\\\?\\uNc\\server\\share\\",
+        ] {
+            let mut units: Vec<u16> = prefix.encode_utf16().collect();
+            units.extend_from_slice(&filename);
+            assert_eq!(admit(&units).unwrap(), expected, "{prefix}");
+        }
+    }
     #[test]
     fn namespaces_and_native_units() {
         for s in [
