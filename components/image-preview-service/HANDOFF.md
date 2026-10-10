@@ -114,3 +114,37 @@ Red on original guard: exit 101, one failed library test at the bare uppercase i
 Native evidence comes only from the unchanged owned tests, not from the lexical UNC tests. The existing hard-capped helper refused its bounded 144 MiB VirtualAlloc attempt with 1455 under the unchanged 128 MiB Job cap; this run's Job peak was 69,038,080 bytes. Existing setup-before-resume, crash/allocator-exit, cancellation/reap, private-handle and read-only/nonfollowing checks pass. No new native case or larger allocation was introduced; the standalone self-check was not rerun.
 
 SourceNS limits remain conservative: <=32766 native path units including resulting NT spelling, no live UNC/provider/maximum-path compatibility evidence. Source namespaces are admission policy, not a user-token security sandbox. No personal/network/UI/clipboard/elevation/foreign-executable probe, tracker change, app-preview enablement or full F07 claim. Corrected-head namespace review, supervisor approval and promotion remain pending. Original native review `529b25b5` does not waive that source gate.
+
+## P21-R02 malformed verbatim namespace correction
+
+Started clean at `16a4ba176a069080c95c429b657dc70e1b66e3fa` on `lane/image-capped-service` in the exact checkout above. Read root AGENTS and supervisor PROGRESS P21-R02 read-only. Only `src/source.rs` and this handoff changed. This candidate requires a new fresh namespace review, not self-approval.
+
+Independent namespace review `8fbc52f0` and parent inspection confirmed a pre-existing residual P2, not a regression from the bare-relative UNC fix. Exact original UTF-16 units:
+
+```text
+[92,92,63,92,92,92,115,101,114,118,101,114,92,115,104,97,114,101,92,120,46,112,110,103]
+```
+
+After stripping the verbatim prefix, the ordinary double-backslash branch accepted the remaining spelling and invented NT `\??\UNC\server\share\x.png`. That network object was not identified by the input's verbatim namespace. The branch now requires `!verbatim`; the verbatim UNC branch still requires the actual prefix plus case-insensitive `UNC\`. No normalization or namespace expansion was added.
+
+One inline exact-unit regression calls only `admit`. It never calls Service, source open, or any filesystem/network operation. With only the test added to the original guard, both parent and helper failed its rejection assertion; the red command sequence exited 101. After the one-condition correction, all eight focused source executions pass, four per parent/helper. Existing bare-relative uppercase/lowercase/mixed-case UNC negatives, ordinary UNC, mixed-case verbatim UNC, absolute drives and unpaired native units remain green. Device/pipe/dot/ADS/trailing/DOS, length and nonfollowing guards are unchanged. Parent admission, helper admission and executable pinning still share this source guard.
+
+Commands ran from `C:/SANDBOX/WORKTREES/mado-explorer/image-capped-service`:
+
+```text
+cargo test --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --lib verbatim_double_backslash_is_rejected_before_io -- --nocapture
+cargo test --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --bin mado-image-helper verbatim_double_backslash_is_rejected_before_io -- --nocapture
+cargo fmt --manifest-path components/image-preview-service/Cargo.toml --check
+cargo check --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --all-targets
+cargo test --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 source::tests -- --nocapture
+cargo build --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --bins
+cargo test --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 -- --nocapture
+git diff --check
+git diff --cached --check
+```
+
+Format, locked offline all-target compile and owned binary build pass without warnings. One coherent final full run passes 20 library plus 9 helper tests, 29 total, zero ignored. All 27 existing executions are retained unchanged; the new test runs in both binaries. The expected caught pending-unwind panic prints and passes. The standalone self-check was not rerun. Final diff inspection covers only the one guard condition, one test and this appendix; no dependency, Taskfile, lockfile, service, protocol, decoder, native or retained legacy changes.
+
+Native evidence is from the unchanged owned suite only, distinct from the pure lexical regression. Existing 128 MiB Job containment admitted the 64 MiB commit and refused the bounded 144 MiB VirtualAlloc attempt with 1455; Job peak was 69,009,408 bytes. Suspended setup failure observed count 1 and exit 995 before refund. Natural allocator fatal exit `0xc0000409`, access violation `0xc0000005`, cancellation/reap/EOF/unwind, private-handle isolation, shared accounting, codec and source-preservation checks pass. The functioning generated ancestor junction still refuses with 4395. No new native cases or allocation probes were added.
+
+No remote open/probe, personal-data, clipboard, elevation, UI, network compatibility or maximum-path experiment occurred. API, budgets, Job, cancellation/runtime, native opens and nonfollowing policy are unchanged. Original native `529b25b5` and accounting `186df890` reviews of other areas do not approve this corrected namespace. Source admission remains policy, not a user-token security sandbox. Fresh corrected-head namespace review, supervisor approval, promotion, deployment/licensing, GUI/GPU/staging and all outstanding full F07 criteria remain pending; no production gate or acceptance status changed.

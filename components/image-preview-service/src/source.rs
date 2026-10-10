@@ -77,7 +77,7 @@ pub fn admit(units: &[u16]) -> Result<Vec<u16>, ()> {
         && s[1..3] == [58, 92];
     let (unc, tail) = if drive {
         (false, &s[3..])
-    } else if s.starts_with(&[92, 92]) {
+    } else if !verbatim && s.starts_with(&[92, 92]) {
         (true, &s[2..])
     } else if verbatim && s.len() >= 4 && eq(&s[..4], "UNC\\") {
         (true, &s[4..])
@@ -177,6 +177,14 @@ mod tests {
         ] {
             assert!(admit(&s.encode_utf16().collect::<Vec<_>>()).is_err(), "{s}");
         }
+    }
+    #[test]
+    fn verbatim_double_backslash_is_rejected_before_io() {
+        let units = [
+            92, 92, 63, 92, 92, 92, 115, 101, 114, 118, 101, 114, 92, 115, 104, 97, 114, 101, 92,
+            120, 46, 112, 110, 103,
+        ];
+        assert!(admit(&units).is_err());
     }
     #[test]
     fn absolute_unc_preserves_native_units() {
