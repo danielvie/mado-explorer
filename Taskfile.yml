@@ -28,6 +28,12 @@ tasks:
       - task test:confirmation
       - task test:clipboard
       - task test:create
+      - task test:watch
+
+  test:watch:
+    desc: Test reviewed native notification service with owned fixtures, excluding known-failing legacy notify diagnostic
+    cmds:
+      - cargo test --locked --manifest-path components/directory-watch/Cargo.toml --target-dir target/p17
 
   test:native-workspace:
     desc: Check owned native workspace save and restart without personal settings or clipboard
