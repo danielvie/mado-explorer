@@ -1,6 +1,6 @@
 # Mado Explorer
 
-A desktop file explorer for navigating locations, inspecting files, and managing filesystem entries.
+A file explorer with graphical and terminal interfaces for navigating locations, inspecting files, and managing filesystem entries. Both interfaces use the same location, selection and operation vocabulary.
 
 ## Language
 

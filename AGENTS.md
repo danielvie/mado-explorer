@@ -2,7 +2,7 @@
 
 ## Project contract
 
-Implement the first release in SPEC.md using its existing acceptance IDs and the vocabulary in CONTEXT.md. Use the Windows-first, Rust/eframe/egui/wgpu baseline. The File Pilot-inspired design files are references, not an application implementation.
+Implement the first release in SPEC.md using its acceptance IDs and the vocabulary in CONTEXT.md. The human-authorized extension adds a UI-independent Rust core and usable TUI while preserving the GUI. Core must build/test without GUI or terminal frameworks; operation models and shared behavior belong behind core APIs, not frontend widgets. Use the Windows-first, Rust/eframe/egui/wgpu GUI baseline. The File Pilot-inspired design files are references, not an application implementation.
 
 Do not shrink scope, change framework, or mark unavailable manual checks as passed to make progress. Bring consequential product/platform decisions to the supervisor. Never perform destructive development checks on personal folders.
 
@@ -64,4 +64,4 @@ Keep source and documentation edits UTF-8. Prefer edit/write tools or Node's exp
 
 ## Task contract
 
-Keep Taskfile.yml current. After application bootstrap, task run launches the explorer, task test runs its automated checks, task clean removes generated build output only, and task design opens the existing layout. Include descriptions and retain the default task listing available tasks. Track Cargo.lock for this application.
+Keep Taskfile.yml current. Task run retains the GUI launch; provide clear run:gui and run:tui tasks as the TUI is integrated. Task test includes core/frontend checks, task clean removes generated build output only, and task design opens the existing layout. Include descriptions and retain the default task listing available tasks. Track Cargo.lock for this application.

@@ -4,7 +4,9 @@ Status: proposed. This document defines the first usable release and its accepta
 
 ## Goal and assumptions
 
-Build a Rust desktop explorer with the compact File Pilot-inspired layout already designed: directory tables, independent tabs and split panes, a Ctrl+O folder finder, image/PDF previews, and safe filesystem operations.
+Build a Rust explorer with a shared UI-independent core and two frontends: the existing compact File Pilot-inspired GUI and a usable terminal UI. Preserve directory tables, independent browsing contexts, folder finder, image/PDF GUI previews and safe filesystem operations.
+
+On 2026-10-10 the human explicitly authorized completing the existing first release plus extracting the shared core and adding the TUI, with the existing native Pi supervisor retaining exclusive ownership. This extends scope; it does not replace the GUI, waive existing acceptance criteria or authorize personal-data probes.
 
 Proposed starting assumptions:
 
@@ -173,6 +175,25 @@ Cyan indicates focus or selection; focus also has a visible border/indicator so 
 - F14.5 All essential actions work by keyboard with visible focus. Controls have accessible labels; verify primary navigation, finder, confirmation dialogs, and operation status using Windows Narrator before release.
 - F14.6 Access denied, malformed preview input, clipboard errors, and ordinary I/O failures do not panic the application. Error messages identify the action/path without requiring a console.
 
+### F15. Shared explorer core
+
+- F15.1 A UI-independent Rust library builds and tests without egui/eframe, terminal frameworks or a display/terminal session. Native Windows backends and non-UI dependencies remain allowed.
+- F15.2 Listings, navigation/history, filter/sort/selection, folder finder and reusable browsing context state have one core implementation used by both frontends. GUI geometry, input focus and terminal rendering stay outside it.
+- F15.3 Operation requests, immutable snapshots, queue/state/progress/conflicts/cancellation/reports and safety rules belong to core APIs, not the GUI drawer. Reviewed native backends remain authoritative; frontends cannot bypass confirmation, collision or identity rules.
+- F15.4 Background execution, operation completion reconciliation, persistence, watchers and preview services sit behind UI-independent APIs as appropriate. GPU textures and frontend rendering remain outside core; no daemon/IPC layer without a concrete requirement.
+- F15.5 Disposable end-to-end core checks cover browsing stale results and filesystem operation success, failure, collision, cancellation, partial results and changed identities. Core correctness does not depend on widgets.
+- F15.6 GUI regression checks and owned native smoke prove extraction preserves existing behavior and safeguards. A shared library or compiling adapter alone is insufficient acceptance.
+
+### F16. Terminal explorer
+
+- F16.1 A separately launchable Windows-first TUI uses the shared core for folder listing, navigation/history, filtering, sorting, path-based selection and folder finder. Loading, empty, unavailable and error states remain usable without blocking input.
+- F16.2 The TUI exposes usable create/rename/copy/move/trash/permanent-delete workflows through the same core operation APIs. Confirmations and conflict choices are explicit; no disabled stubs are reported as completed functionality.
+- F16.3 Operation progress, queued/active cancellation, unresolved-item reports and safe exit/wait remain accessible after navigation or originating context closure. It never changes captured sources/destinations from later UI state.
+- F16.4 Terminal input/editor ownership prevents accidental commands. Normal exit, cancellation and errors restore terminal state; raw-mode/alternate-screen ownership is confined to the TUI.
+- F16.5 The TUI shares applicable reconciliation, persistence and watcher behavior through core rather than duplicating business rules. Restoration never resumes filesystem operations automatically.
+- F16.6 Document genuine terminal preview/accessibility/shortcut limitations and alternatives. Graphical image/PDF preview requirements remain GUI obligations; do not silently claim terminal pixel-preview or feature parity.
+- F16.7 Retain focused terminal input/state checks, disposable end-to-end TUI operation smoke and GUI regressions. Taskfile provides described GUI/TUI launch tasks, default listing, tests and generated-build-only cleanup. Unavailable personal-data/manual checks remain pending, not passed.
+
 ## Shortcut contract
 
 | Shortcut | Action |
@@ -204,7 +225,7 @@ Keep each checkpoint runnable. Do not build all UI controls first and leave thei
 
 At checkpoint 1, `task run` must launch the Rust application, `task test` must run its automated checks, and `task clean` must remove generated build artifacts without touching user data or design/spec files. Retain a separate `task design` for opening the Excalidraw reference. Until then, the existing Taskfile operates on the design only.
 
-No framework abstraction or custom renderer is required in advance. Separate directory loading, previews, settings, and mutating operations enough to test them without a GUI. Prefer installed/native facilities and small existing libraries over writing codecs, PDF interpreters, or Recycle Bin behavior.
+The authorized core/TUI addition requires a small Rust library/frontend separation, not a generic framework abstraction or custom renderer. Keep core free of GUI/terminal frameworks and extract shared behavior incrementally while retaining runnable GUI checkpoints. Prefer installed/native facilities and small existing libraries over writing codecs, PDF interpreters, or Recycle Bin behavior.
 
 Before expanding beyond checkpoint 2, run a small keyboard/focus/accessibility probe and a system-clipboard integration probe. If eframe cannot satisfy a required workflow without disproportionate platform work, report that blocker before building around it. Do not silently switch frameworks or weaken an acceptance criterion.
 
