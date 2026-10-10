@@ -15,7 +15,7 @@ This is a recovery checkpoint for native compaction, NOT transfer to a second su
 - C:/SANDBOX/REPOS/mado-explorer.git/LANES.md
 - C:/SANDBOX/REPOS/mado-explorer.git/handoff/s016-native-supervisor-state.md, historical dispatch boundaries only
 
-Last inspected main635ffdf607ac8cb07e4da63a019598cda37ca03f, tracked clean. Preserve historical untracked .pi/workflows/project-review.js and handoff/handoff-1-rust-explorer-implementation.md; never blanket stage/delete. Main remains runnable.
+Last inspected maina9a1994 (P21 integration/validation), tracked clean before this checkpoint update. Preserve historical untracked .pi/workflows/project-review.js and handoff/handoff-1-rust-explorer-implementation.md; never blanket stage/delete. Main remains runnable.
 
 ## Accepted source, not documentation-only progress
 
@@ -23,7 +23,7 @@ Compact ROOT workspace S016 is accepted3ada2f3: actual tab/navigation/path/bread
 
 Other accepted backend source: clipboard P05/P19 at48ec07f/6e59025 (17 safe packet/owned Shell checks, no app/global clipboard); create P18 at65eec22 (14 checks/one privileged pending, LOCAL NTFS-only partial); shared CPU reservation P20 a88943d (25 checks+2 compile-fail doctests, native opt-in ignored); native notification P17 b39c4bd (20 checks including actual overflow and corrected shared-stop races, old failing notify diagnostic preserved separately). PROGRESS records exact preserved subtree/archive hashes. These backends are not complete application criteria. No production previews, mutating commands or app clipboard enabled.
 
-## Current queued/native stages
+## Historical queued/native stages
 
 Treat these as receipts until actual state reconciled once after interruption. Do not poll/wait loops or duplicate active writers. Old result handles may be cleaned before delayed notifications. If get_subagent_result says not found, read the known task `.output` artifact's FINAL TEXT only with NDJSON filtering; never dump reasoning/encrypted records. Exact Git head/source evidence must match. Already recovered original notifications are duplicates, not new dispatch triggers.
 
@@ -38,6 +38,20 @@ S018-R01 fixed startup diagnostics atf42826d6, corrected reviewa11ce427 clear. P
 P22 privacy reviewerbd0f3727 cleared Stage1 retention only as BLOCKED diagnostic; actualnative183/zeroClipcalls unchanged. Found Stage2 conditionaldata-loss: create_dir thenopen may capture substituted ordinarydir; cleanup could delete that foreign emptydir. Stage2 never authorized/executed. Fresh retention-only P22-R01 writer1ca8ed0c-f8fa-406 at original0c7bc467 owns native.rs/main.rs/run.ps1/Taskfile/HANDOFF only; remove filesystem deletion/DELETE authority, retainfixtures/reportpath/releasehandles and separate target/p22/build clean from retained target/p22/fixtures, one ownedfilesystemretention check, no station183retry/clipboard/phase2. Next consume exactresult and new privacydelta review; do not promote or call capabilitypass. Original0c7bc467 archived archive/p22-stage1-blocked.
 
 Next ready PRIMARY app behavior after S018 ownvalidation is explicit New folder/New empty file flow using accepted P18 + window-owned operation-drawer (already has Kind::CreateFile/CreateFolder). This is a PLAN, not dispatched or implemented. Own a bounded editor/preparation/captured target + one fixed background mutation worker/controller queue/status/cancellation + affected-tab reconciliation end-to-end, no rename/copy/move/delete expansion. Keep pre-checkpoint production gate false pending authority/evidence, actual owned fixture tests may internally enable. Do not add disconnected controls. Needs exact slice/boundary/check recording before launch and fresh safety review. P18 local-NTFS/name/provider limits remain partial, no permanent deferral/fullcriterion claim. P21 image source continues independently; no restart/duplicate writer from this document.
+
+## Latest accepted state after P21/P22 completion
+
+This update supersedes all historical agent rosters above. P21/P22/S018 source and reviews ALL consumed and terminal; no active writers/reviewers/integration agents at this checkpoint. The native registry may drop terminal entries before delayed notifications; old529b25b5/186df890 and others are duplicates, not new reviews or dispatch triggers.
+
+P22 corrected privacyreview52d77d7b cleared454838c8 ONLY retaining BLOCKED diagnostic. Promoted6fbccb9c806e80afb883fbea5868f605a03adfef with exactvalidationtree499b0948bbba7176930a54da81de745136e7ad97. Original/fix reviewed heads archived. Parent4safeCLI/proof/codec/owned-retention checks pass, formatting/compile pass; root test:clipboard-probe invokes safe checks only. Fixture deletion/DELETE authority removed, buildclean affects target/p22/build not retainedfixtures. Native183 FAILED/reads0/writes0/Clipcalls0 trace retained exactly, no station rerun/Stage2/privatecapability proof/permission/gate change.
+
+P21 final original1f00d574 +sourceR01(16a4ba17 bare-relativeUNC) +sourceR02(0a2fcf8a malformedverbatim doubleslash) reviewed/accepted as boundedbackend. All originals retained archive/p21-reviewed, archive/p21-verbatim-blocked; final native529b25b5 lifetime/accounting186df890 OTHERareas clear, freshnamespace c28ea668 BOTHlexicalP2cases clear after earlier8fbc52f0 residual finding. ParentactualOWNEDnative/codec cap/crash/allocator/cancellation/handleisolation/reap +pureguard checks29pass0ignored, formatting/lockedofflinecompile/build pass. Promoted8231a0b81db632a737e0bc1a430ed035e8adacd0 after3commit terminalrebase/fixup/FF preserves componenttree899d685c6d5c33797d824ea9fda64d283fb4700e exactly. Promoted29tests rerun pass; task test:image-service buildsownhelperthenrunschecks. Initialcomponentcachebootstrapcompletedonce; no repeatedhealthycompile restart. Legacyunboundedbranch untouched. No remote opens from malformed lexical tests. UIowner MUST stop/poll before Service Drop, Drop blocks/reaps; do not claim cancellation deadlines.
+
+P21 accepted source is NOT root preview, GPU128MiB/conversion/staging/cache/deployment/packaging/license/fullF07 or root256MiB-total-process proof. Capped helper128MiB+output32MiB+control8MiB charge SAMEshared256MiBCPU budget; fullRootadapter still needed. S018 productionwatch gate FALSE/nooverride. No personal clipboard authority response received. Actual task run UI remains compact read-only listing with manual-F5 status.
+
+NEXT meaningful ready root behavior remains the New folder/New empty file + boundedcaptured editor + window-owned operation drawer/fixed background worker/status/cancellation/affectedtab reconciliation described above. Not yet commissioned; do not infer source or agent from plan. Record exact slice/baseline/write boundary/test BEFORE source launch. Source may exercise ownedfixtures with injected enabledgate, production capability remains explicitly false; broader providers/fullcreatecriterion are NOT deferred permanently. Future preview adapter must account GPU/staging/CPU ownership and service retirement, not copy unbounded decode into root.
+
+Native own session observed98% context by intercom at this checkpoint. Request native /compact before more consequential source admission; no native compaction tool exposed, no SDK/sessionJSONL workaround/unattended script/second-supervisor transfer authorized. This is recoverable checkpoint, not scope stop or fresh ownership handover.
 
 ## Actual capability decision and safety limits
 
