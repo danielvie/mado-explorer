@@ -14,5 +14,7 @@ time = { version = "0.3", default-features = false, features = ["std"] }
 
 [target.'cfg(windows)'.dependencies]
 mado-native-directory-watch = { path = "components/directory-watch" }
+mado-fs-create = { path = "components/fs-create" }
+mado-operation-drawer = { path = "components/operation-drawer" }
 # ShellExecuteExW and STA initialization; reuse the installed transitive version.
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

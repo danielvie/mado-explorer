@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 /// SPEC checkpoint-2 native capability probes/authority are still pending.
 /// No settings, environment, CLI or UI override. Supervisor alone may clear this gate.
-const NATIVE_CAPABILITY_GATE_CLEARED: bool = false;
+pub(super) const NATIVE_CAPABILITY_GATE_CLEARED: bool = false;
 pub(super) const MANUAL_STATUS: &str = "Notifications disabled; refresh manually (F5)";
 
 #[derive(Clone, Debug)]

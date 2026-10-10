@@ -259,6 +259,15 @@ impl Explorer {
             }
         }
         let requested = ctx.input(|i| i.viewport().close_requested());
+        #[cfg(windows)]
+        let requested = {
+            let proceed = self.create_close_requested(requested);
+            if requested && !proceed {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                workspace::surrender_focus(ctx);
+            }
+            proceed
+        };
         if self.persistence.allow_close {
             return;
         }
@@ -385,6 +394,9 @@ impl Explorer {
         self.persistence_status(ui);
         // Do not call workspace/finder custom keyboard or completion handlers during close.
         if !self.persistence.is_closing() {
+            #[cfg(windows)]
+            self.create_workspace(ui);
+            #[cfg(not(windows))]
             self.finder_workspace(ui);
             self.queue_snapshot(false);
         }

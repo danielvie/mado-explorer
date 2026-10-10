@@ -197,6 +197,13 @@ impl Explorer {
             .loader
             .request_for(tab.id.0, tab.navigation.current.location.clone());
         self.sorter.cancel(tab.id.0);
+        #[cfg(windows)]
+        self.create.context_refreshed(
+            tab.id,
+            &tab.navigation.current.location,
+            tab.navigation.current.generation,
+            generation,
+        );
         tab.resume(generation);
     }
 

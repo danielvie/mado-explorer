@@ -1,5 +1,11 @@
 #[cfg(test)]
 mod compact_ui_tests;
+#[cfg(windows)]
+mod create_adapter;
+#[cfg(all(test, windows))]
+mod create_tests;
+#[cfg(windows)]
+mod create_ui;
 mod directory;
 mod finder;
 #[cfg(test)]
@@ -79,6 +85,8 @@ fn main() -> eframe::Result {
 
 struct Explorer {
     #[cfg(windows)]
+    create: create_adapter::CreateAdapter,
+    #[cfg(windows)]
     watch: watch_adapter::WatchAdapter,
     loader: DirectoryLoader,
     sorter: Sorter,
@@ -133,6 +141,8 @@ impl Explorer {
             )
         })?;
         let mut app = Self {
+            #[cfg(windows)]
+            create: create_adapter::CreateAdapter::production(),
             #[cfg(windows)]
             watch: watch_adapter::WatchAdapter::production(),
             loader,
@@ -1542,6 +1552,8 @@ mod tests {
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
         Explorer {
             #[cfg(windows)]
+            create: create_adapter::CreateAdapter::production(),
+            #[cfg(windows)]
             watch: watch_adapter::WatchAdapter::production(),
             loader: DirectoryLoader::new(repaint.clone()).unwrap(),
             sorter: Sorter::new(repaint).unwrap(),
@@ -2140,6 +2152,13 @@ impl eframe::App for Explorer {
         }
         if !self.persistence.is_closing() && self.poll_directory() {
             ctx.request_repaint();
+        }
+        #[cfg(windows)]
+        {
+            self.create_logic();
+            if self.create.needs_tick() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            }
         }
         self.persistence_logic(ctx, frame);
         #[cfg(windows)]
