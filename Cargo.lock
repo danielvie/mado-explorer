@@ -1485,10 +1485,19 @@ name = "mado-explorer"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "mado-fs-create",
  "mado-native-directory-watch",
+ "mado-operation-drawer",
  "serde",
  "serde_json",
  "time",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mado-fs-create"
+version = "0.1.0"
+dependencies = [
  "windows-sys 0.61.2",
 ]
 
@@ -1497,6 +1506,13 @@ name = "mado-native-directory-watch"
 version = "0.1.0"
 dependencies = [
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mado-operation-drawer"
+version = "0.1.0"
+dependencies = [
+ "egui",
 ]
 
 [[package]]
