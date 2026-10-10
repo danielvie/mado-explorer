@@ -173,14 +173,22 @@ impl WatchAdapter {
     }
 
     pub(super) fn accept(&mut self, report: Report) {
-        if !self.admitted || report.revision != self.revision || self.stopping {
+        if !self.enabled || self.service.is_none() || self.stopping {
             return;
         }
-        self.driver_errors = report.driver_errors;
-        self.omitted_errors = report.omitted_driver_errors;
+        // Service-wide failures also precede admission or survive target revisions.
+        // The current Service supplies a sticky snapshot bounded to eight errors;
+        // retain it across empty reports, without growing a separate error log.
+        if !report.driver_errors.is_empty() {
+            self.driver_errors = report.driver_errors;
+        }
+        self.omitted_errors = self.omitted_errors.max(report.omitted_driver_errors);
         if report.stopped {
             self.unavailable =
                 Some("Directory notification driver stopped; use manual Refresh/F5.".into());
+        }
+        if !self.admitted || report.revision != self.revision {
+            return;
         }
         for status in report.targets {
             if status.revision != self.revision {
@@ -331,6 +339,14 @@ impl WatchAdapter {
         }
         adapter.sync(contexts.to_vec());
         adapter
+    }
+
+    #[cfg(test)]
+    pub(super) fn refuse_owned_admission(&mut self, refusal: Refusal) {
+        // Controlled admission refusal, not a native startup-failure probe.
+        assert!(self.owned_root.is_some() && self.service.is_some());
+        self.admitted = false;
+        self.refusal = Some(refusal);
     }
 
     #[cfg(test)]

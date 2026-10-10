@@ -681,6 +681,161 @@ fn s018_actual_app_exit_requests_nonblocking_stop_and_retains_cleanup_ownership(
 }
 
 #[test]
+fn s018_r01_controlled_startup_failure_before_admission_retains_cause_and_stopped() {
+    let f = Fixture::new();
+    let mut app = tests::test_app(f.a.clone());
+    let context = app.watch_context(0);
+    app.watch = watch_adapter::WatchAdapter::enable_owned(&f.root, &[context.clone()]);
+    assert!(app.watch.revision > 0);
+    app.watch.refuse_owned_admission(Refusal::Stopping);
+    let failure = Failure::Native {
+        action: "CreateIoCompletionPort",
+        code: 8,
+    };
+    app.watch.accept(Report {
+        revision: 0,
+        targets: vec![],
+        driver_errors: vec![failure],
+        omitted_driver_errors: 2,
+        stopped: true,
+    });
+    let message = app.watch.message(&context);
+    assert!(
+        [
+            "CreateIoCompletionPort",
+            "code: 8",
+            "driver stopped",
+            "omitted: 2",
+            "Stopping"
+        ]
+        .iter()
+        .all(|part| message.contains(part)),
+        "startup cause/action/code/stopped explanation missing: {message}"
+    );
+    assert!(app.watch.bindings[0].status.is_none());
+    assert!(!app.watch.bindings[0].dirty);
+
+    // Even a current-revision target is inadmissible after the controlled refusal.
+    let target = status(&app, true);
+    inject(&mut app, target);
+    assert!(app.watch.bindings[0].status.is_none());
+    assert!(!app.watch.bindings[0].dirty);
+    app.watch.retry(&context);
+    app.navigate(f.a.clone(), Intent::Refresh);
+    app.watch.accept(Report {
+        revision: 0,
+        targets: vec![],
+        driver_errors: vec![],
+        omitted_driver_errors: 0,
+        stopped: false,
+    });
+    let retained = app.watch.message(&context);
+    assert!(retained.contains("CreateIoCompletionPort"));
+    assert!(retained.contains("code: 8"));
+    assert!(retained.contains("driver stopped"));
+    assert!(retained.contains("omitted: 2"));
+    assert!(!retained.contains("registered. "));
+    let ctx = egui::Context::default();
+    let output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            )),
+            ..Default::default()
+        },
+        |ui| app.workspace(ui),
+    );
+    assert!(text(&output, "CreateIoCompletionPort"));
+    assert!(text(&output, "driver stopped"));
+    output.drop_without_applying_deltas();
+    stop(&mut app);
+}
+
+#[test]
+fn s018_r01_stale_report_keeps_service_errors_but_rejects_target_payload() {
+    let f = Fixture::new();
+    let mut app = f.app();
+    wait(&mut app, ready);
+    let mut stale = status(&app, true);
+    stale.ready = false;
+    stale.directory_error = Some(Failure::Capacity);
+    app.watch.accept(Report {
+        revision: app.watch.revision - 1,
+        targets: vec![stale.clone()], // record itself is current; whole target snapshot is stale
+        driver_errors: vec![Failure::Native {
+            action: "controlled shared error",
+            code: 87,
+        }],
+        omitted_driver_errors: 3,
+        stopped: false,
+    });
+    assert!(
+        app.watch
+            .message(&app.watch_context(0))
+            .contains("controlled shared error")
+    );
+    assert!(
+        app.watch
+            .message(&app.watch_context(0))
+            .contains("omitted: 3")
+    );
+    assert!(!app.watch.bindings[0].dirty);
+    assert!(app.watch.bindings[0].status.as_ref().unwrap().ready);
+    assert!(
+        app.watch.bindings[0]
+            .status
+            .as_ref()
+            .unwrap()
+            .directory_error
+            .is_none()
+    );
+
+    stale.revision = app.watch.revision - 1;
+    inject(&mut app, stale);
+    assert!(!app.watch.bindings[0].dirty);
+    assert!(app.watch.bindings[0].status.as_ref().unwrap().ready);
+    let current = status(&app, true);
+    inject(&mut app, current);
+    assert!(app.watch.bindings[0].dirty);
+    assert!(app.watch.bindings[0].status.as_ref().unwrap().ready);
+    let message = app.watch.message(&app.watch_context(0));
+    assert!(message.contains("controlled shared error"));
+    assert!(message.contains("code: 87"));
+    assert!(message.contains("omitted: 3"));
+    stop(&mut app);
+}
+
+#[test]
+fn s018_r01_disabled_and_intentionally_closing_adapters_reject_service_injection() {
+    let f = Fixture::new();
+    let mut app = tests::test_app(f.a.clone());
+    let context = app.watch_context(0);
+    let report = || Report {
+        revision: 0,
+        targets: vec![],
+        driver_errors: vec![Failure::Native {
+            action: "unsupported injection",
+            code: 5,
+        }],
+        omitted_driver_errors: 1,
+        stopped: true,
+    };
+    app.watch.accept(report());
+    assert!(app.watch.unavailable.is_none());
+    assert_eq!(app.watch.message(&context), watch_adapter::MANUAL_STATUS);
+    assert!(!app.watch.needs_tick());
+    assert!(app.watch.bindings.is_empty());
+    app.watch = watch_adapter::WatchAdapter::enable_owned(&f.root, &[context.clone()]);
+    app.watch.stop();
+    let before = app.watch.message(&context);
+    app.watch.accept(report());
+    assert_eq!(app.watch.message(&context), before);
+    assert!(app.watch.unavailable.is_none());
+    stop(&mut app);
+}
+
+#[test]
 fn s018_actual_initial_missing_target_error_and_retry_are_not_mock_registration() {
     let f = Fixture::new();
     let missing = f.parent.join("initially-missing");
