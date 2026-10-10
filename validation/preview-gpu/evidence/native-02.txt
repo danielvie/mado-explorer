@@ -1,0 +1,69 @@
+c372fa8ccb6781a33fcf4080b01af29519fae22d
+324599e7766f5c6c9caab905932b1cdba8a8a7da4b8f761054bc3aef611b7c14 *validation/preview-gpu/src/lib.rs
+6af5a29be84f7ecdeb54f3655cff4f11c030e2068d9a4c359c33348c6873364c *validation/preview-gpu/src/main.rs
+6a43971e3f7969531fd7976ca95e3beeb27a0c6085f97ec990713d67fc4ef2b2 *validation/preview-gpu/Cargo.toml
+fa2e4f749cf9b52a7064999ee8bc94ab37bc3c951455dce32a2031fab04f2ae8 *validation/preview-gpu/Cargo.lock
+bd612ac848b613b4432056431f48c6ef22770e33bf31743cfc17ad92e55536ce *target/p23/build/debug/mado-preview-gpu-probe.exe
+task: [run] cargo run --locked --offline --manifest-path Cargo.toml --target-dir ../../target/p23/build -- --native-owned
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running `../../target/p23/build\debug\mado-preview-gpu-probe.exe --native-owned`
+P23 opt-in generated-only offscreen DX12; no window/files/clipboard/decoder/PDFium
+IDENTITY host=DANIEL-PC os=windows arch=x86_64 PID=20596
+ADAPTER AdapterInfo {
+    name: "NVIDIA GeForce RTX 4070 SUPER",
+    vendor: 4318,
+    device: 10115,
+    device_type: DiscreteGpu,
+    device_pci_bus_id: "0000:01:00.0",
+    driver: "32.0.15.9186",
+    driver_info: "",
+    backend: Dx12,
+    subgroup_min_size: 32,
+    subgroup_max_size: 32,
+    transient_saves_memory: Some(
+        false,
+    ),
+    limit_bucket: None,
+}
+CASE actual-mapped-upload 7x3 alpha=0,1,127,128,254,255
+SCOPES upload-create-map-encode-finish-submit clean=true
+SCOPES renderer-create-register clean=true
+PASS upload+scalar+padding+readback Ready id=User(0) source=84 staging=768 readback=1536 CPU=1050964 GPU=84
+CASE pre-encoding-native-ID-withdrawal
+SCOPES positive-normal-render clean=true
+SCOPES previous-submit-withdraw-replacement-stale-render clean=true
+RETAIN pending_callback_observed=true retiring=84 current=84 target=512 GPU=680 CPU=1053012
+SCOPES retained-native-texture-readback clean=true
+PASS positive-sampling + missing-old-mesh-no-sampling + retained-readback + completion-before-destroy/refund; old=User(0) next=User(1)
+CASE direct-owned-encoder-discard-before-submit
+SCOPES direct-discard clean=true
+PASS discard known-non-submission, not callback/drop success inference
+CASE controlled-submit-validation-rejection own16-byte-destroyed-source
+EXPECTED REJECTION Validation=Some(
+    Validation {
+        source: ContextError {
+            fn_ident: "Queue::submit",
+            source: DestroyedResource(
+                DestroyedResourceError(
+                    ResourceErrorIdent {
+                        type: "Buffer",
+                        label: "p23-owned-buffer",
+                    },
+                ),
+            ),
+            label: "",
+        },
+        description: "Validation Error\n\nCaused by:\n  In Queue::submit\n    Buffer with 'p23-owned-buffer' label has been destroyed\n",
+    },
+) Internal=None OutOfMemory=None
+SCOPES post-rejection-clean-drain clean=true
+PASS rejected_submit clean=false actual_deferred_callback=true Ready=false; resources kept charged until separate clean drain
+SCOPES final-drain clean=true
+PASS final-clean-drain preview CPU=0 GPU=0 control=1048576; physical driver heaps NOT capped
+PASS outer owner released including control: CPU=0
+CASE explicit-own-separate-device-destroy NOT hardware-loss
+DEVICE LOST CALLBACK reason=Destroyed message=
+DESTROY exact_poll_outcome=Ok(Ok(QueueEmpty)) callback_observed=true
+PASS explicit-destroy own device; epoch invalidation is PURE injection, not hardware-loss recovery proof
+GAP actual eframe hidden/multipass/close ordering and asynchronous UI drain NOT exercised; no Root activation authorized
+NATIVE_TASK_EXIT=0

@@ -30,3 +30,26 @@ task: [clean] cargo clean --manifest-path Cargo.toml --target-dir ../../target/p
 task: [clean] cargo clean --manifest-path Cargo.toml --target-dir ../../target/p23/build --profile release
 task: [clean] cargo clean --manifest-path Cargo.toml --target-dir ../../target/p23/build --doc
 CHECK_EXIT=0
+
+Final source tightening: reject only destroyed-buffer Queue::submit validation; track native device epoch and observe control release
+task: [check] cargo fmt --manifest-path Cargo.toml -- --check
+task: [check] cargo check --locked --offline --manifest-path Cargo.toml --target-dir ../../target/p23/build --all-targets
+    Checking mado-preview-gpu-probe v0.1.0 (C:\SANDBOX\WORKTREES\mado-explorer\preview-gpu-probe\validation\preview-gpu)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s
+task: [test] cargo test --locked --offline --manifest-path Cargo.toml --target-dir ../../target/p23/build --lib
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src\lib.rs (../../target/p23/build\debug\deps\mado_preview_gpu_probe-a04eca9ce8829101.exe)
+
+running 4 tests
+test tests::completion_alone_or_invalid_epoch_is_not_ready ... ok
+test tests::current_and_retiring_payloads_share_one_limit ... ok
+test tests::layout_refuses_before_allocation_and_charges_padding ... ok
+test tests::same_cpu_counter_holds_source_staging_readback_and_external_capacity ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling mado-preview-gpu-probe v0.1.0 (C:\SANDBOX\WORKTREES\mado-explorer\preview-gpu-probe\validation\preview-gpu)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.87s
+warning: in the working copy of 'validation/preview-gpu/evidence/checks.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'validation/preview-gpu/src/main.rs', LF will be replaced by CRLF the next time Git touches it
+FINAL_CHECK_EXIT=0

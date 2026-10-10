@@ -5,7 +5,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     task::{Context, Poll, Wake, Waker},
@@ -100,6 +100,7 @@ struct Probe {
     textures: Vec<Option<ChargedTexture>>,
     renderer: Option<egui_wgpu::Renderer>,
     uncaptured: Arc<AtomicBool>,
+    epoch: Arc<AtomicU64>,
     _control: CpuReservation,
 }
 impl Probe {
@@ -163,8 +164,8 @@ impl Probe {
                 timeout: Some(Duration::from_secs(10)),
             })
             .map_err(|e| format!("Device::poll failed: {e:?}; outcome unknown"))?;
-        if self.uncaptured.load(Ordering::Acquire) {
-            return Err("uncaptured GPU error".into());
+        if self.uncaptured.load(Ordering::Acquire) || self.epoch.load(Ordering::Acquire) != 1 {
+            return Err("uncaptured GPU error or invalid device epoch; outcome unknown".into());
         }
         Ok(())
     }
@@ -358,8 +359,8 @@ fn upload(p: &mut Probe) -> Result<(usize, epaint::TextureId)> {
             clean && registration_clean,
             done.load(Ordering::Acquire),
             1,
-            1,
-            true,
+            p.epoch.load(Ordering::Acquire),
+            p.epoch.load(Ordering::Acquire) == 1,
         ),
         "upload not Ready",
     )?;
@@ -606,8 +607,27 @@ fn discard_and_reject(p: &mut Probe) -> Result<()> {
     // Valid encoding, invalidate ONLY our own small source before submit.
     p.buffers[src].buffer.destroy();
     p.queue.submit([commands]);
-    let clean = scopes.pop("controlled-rejected-submit")?;
-    require(!clean, "controlled rejection unexpectedly accepted")?;
+    let [oom, internal, validation] = scopes.0;
+    let v = validation.pop();
+    let i = internal.pop();
+    let o = oom.pop();
+    let validation = wait_future(v)?;
+    let internal = wait_future(i)?;
+    let oom = wait_future(o)?;
+    eprintln!(
+        "EXPECTED REJECTION Validation={validation:#?} Internal={internal:#?} OutOfMemory={oom:#?}"
+    );
+    // Require this exact controlled submit failure, not an unrelated native failure.
+    require(
+        internal.is_none() && oom.is_none(),
+        "unexpected Internal/OOM in rejection case",
+    )?;
+    require(
+        matches!(&validation, Some(wgpu::Error::Validation { description, .. })
+        if description.contains("In Queue::submit") && description.contains("has been destroyed")),
+        "controlled rejection did not report destroyed resource at Queue::submit",
+    )?;
+    let clean = validation.is_none();
     // Never wait on the rejected submission index. Establish a separate clean drain.
     let scopes = Scopes::new(&p.device);
     let encoder = p.encoder();
@@ -671,6 +691,11 @@ fn native() -> Result<()> {
         eprintln!("UNEXPECTED UNCAPTURED: {error:#?}");
         error_flag.store(true, Ordering::Release);
     }));
+    let epoch = Arc::new(AtomicU64::new(1));
+    let lost_epoch = epoch.clone();
+    device.set_device_lost_callback(move |_, _| {
+        lost_epoch.store(2, Ordering::Release);
+    });
     let mut p = Box::new(Probe {
         device,
         queue,
@@ -681,6 +706,7 @@ fn native() -> Result<()> {
         textures: Vec::with_capacity(4),
         renderer: None,
         uncaptured,
+        epoch,
         _control: control,
     });
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<()> {
@@ -709,7 +735,15 @@ fn native() -> Result<()> {
         Ok(())
     }));
     match outcome {
-        Ok(Ok(())) => drop(p),
+        Ok(Ok(())) => {
+            let cpu = p.cpu.clone();
+            drop(p);
+            require(
+                cpu.used() == 0,
+                "control reservation survived final owner release",
+            )?;
+            println!("PASS outer owner released including control: CPU=0");
+        }
         failed => {
             eprintln!(
                 "FAILED main-device outcome={failed:?}; conservatively retained CPU={} GPU={} resources until process teardown; no Ready/refund certificate",
