@@ -1,0 +1,18 @@
+diff --git a/PROGRESS.md b/PROGRESS.md
+index aba7200..92093d7 100644
+--- a/PROGRESS.md
++++ b/PROGRESS.md
+@@ -1,5 +1,13 @@
+ # Implementation progress
+ 
++## Active isolated fix S012-R02
++
++- Supervisor-classified concrete P05 namespace defect at terminal candidate 8998cec501420d1602165d00945746f7da2fb30e. Fresh worker owns components/file-clipboard/src/lib.rs, src/tests.rs and HANDOFF.md only in C:/SANDBOX/WORKTREES/mado-explorer/file-clipboard, branch lane/file-clipboard. May commit only those component files; no nested delegation or main/sibling changes.
++- Targets: F13.6/F10.1/F02.4 backend admission, still partial. unc_remainder currently validates UNC server/share as ordinary components and admits the Windows reserved pipe share. Reject case-insensitive ordinary/verbatim UNC pipe shares before packets are admitted. Keep ordinary filesystem shares and pipe-named entries within actual filesystem shares valid.
++- Focused checks: snapshot plus Unicode and native-ACP raw decoder rejection for ordinary/verbatim/case/ordinary-slash named-pipe forms, valid UNC path identity, existing eleven checks, fmt/locked compile/diff. No global clipboard or pipe/network filesystem I/O.
++- Exclusions: transport/publication refactors, GUI/operation integration, dependency/root changes, personal data, enablement or acceptance updates. Independent fresh exact-head review follows the committed correction. Preserve original review/failure evidence in component HANDOFF.md.
++- This supervisor-owned commission note is temporary lane-local tracking while the settings worker owns main. Parent transfers evidence to canonical main PROGRESS.md and removes only this note before integration; worker must not stage/edit it.
++
+ ## Current state
+ 
+ - Baseline: S001-S010 accepted; captured-target finder, tabs and split panes preserve native contexts and bounded routing.
