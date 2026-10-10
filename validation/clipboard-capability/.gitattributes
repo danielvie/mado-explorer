@@ -1,0 +1,3 @@
+# Preserve frozen source and native evidence bytes, including UTF-8 and line endings.
+* -text
+evidence/*.txt whitespace=cr-at-eol

@@ -1,0 +1,28 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List probe tasks
+    cmds:
+      - task --taskfile '{{.TASKFILE_DIR}}/Taskfile.yml' --list
+  run:
+    desc: Build and run setup-only in a fresh console process, no clipboard calls
+    cmds:
+      - powershell -NoProfile -File '{{.TASKFILE_DIR}}/run.ps1' -Mode SetupOnly
+  native:
+    desc: Future explicit private packet roundtrip, requires supervisor source review and authorization
+    cmds:
+      - powershell -NoProfile -File '{{.TASKFILE_DIR}}/run.ps1' -Mode Roundtrip
+  test:
+    desc: Pure CLI, isolation guard and native UTF-16 packet checks, no native setup or clipboard
+    cmds:
+      - cargo test --locked --offline --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p22'
+  check:
+    desc: Formatting and locked all-target compile without execution
+    cmds:
+      - cargo fmt --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' -- --check
+      - cargo check --locked --offline --all-targets --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p22'
+  clean:
+    desc: Remove generated Cargo build output in owned target/p22 only, not retained source or evidence
+    cmds:
+      - cargo clean --manifest-path '{{.TASKFILE_DIR}}/Cargo.toml' --target-dir '{{.TASKFILE_DIR}}/../../target/p22'
