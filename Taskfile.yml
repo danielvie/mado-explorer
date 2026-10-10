@@ -30,6 +30,13 @@ tasks:
       - task test:create
       - task test:watch
       - task test:clipboard-probe
+      - task test:image-service
+
+  test:image-service:
+    desc: Build our capped helper and test owned codec, protocol, shared-budget and native resource lifetimes
+    cmds:
+      - cargo build --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --bin mado-image-helper
+      - cargo test --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21
 
   test:clipboard-probe:
     desc: Test blocked probe privacy guards and owned fixture retention only, no station or clipboard calls
