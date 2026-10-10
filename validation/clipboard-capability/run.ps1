@@ -1,7 +1,7 @@
 param([ValidateSet('SetupOnly', 'Roundtrip')][string]$Mode = 'SetupOnly')
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-$target = Join-Path $root 'target/p22'
+$target = Join-Path $root 'target/p22/build'
 $manifest = Join-Path $PSScriptRoot 'Cargo.toml'
 $files = @('Cargo.toml', 'Cargo.lock', 'src/main.rs', 'src/native.rs', 'run.ps1', 'Taskfile.yml')
 function FileHash([string]$path) {
@@ -36,7 +36,8 @@ $stream = [IO.File]::Open($log, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write
 $writer = [IO.StreamWriter]::new($stream, [Text.UTF8Encoding]::new($false))
 try {
     $header = @("utc=$([DateTime]::UtcNow.ToString('o'))", "host=$env:COMPUTERNAME os=$([Environment]::OSVersion.VersionString)",
-        "checkout_head=$head backend_tree=$backend", "parameters=$argument sourceSHA256=$sourceHash binarySHA256=$binaryHash", $before)
+        "checkout_head=$head backend_tree=$backend", "build_target=$target binary_path=$exe retained_fixtures=target/p22/fixtures",
+        "parameters=$argument sourceSHA256=$sourceHash binarySHA256=$binaryHash", $before)
     foreach ($line in $header) { Write-Output $line; $writer.WriteLine($line) }
     $writer.Flush()
     & $exe $argument 2>&1 | ForEach-Object { Write-Output $_; $writer.WriteLine($_) }

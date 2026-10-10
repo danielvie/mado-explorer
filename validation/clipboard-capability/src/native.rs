@@ -453,7 +453,7 @@ pub fn run(mode: Mode) -> Result<()> {
                 }
                 println!("stage=roundtrip intent={intent:?} outcome=matched");
             }
-            fixtures.cleanup()?;
+            fixtures.release();
         }
         Ok(())
     })();
@@ -488,9 +488,9 @@ pub fn run(mode: Mode) -> Result<()> {
     Ok(())
 }
 
-// Stage 2 only. No filesystem mutation on setup-only or in default tests.
+// Stage 2 only, except the owned filesystem-only retention regression.
 struct Fixtures {
-    root_handle: std::fs::File,
+    _root_handle: std::fs::File,
     files: Vec<std::fs::File>,
     paths: Vec<std::path::PathBuf>,
 }
@@ -505,12 +505,19 @@ fn non_reparse(path: &std::path::Path, directory: bool) -> Result<()> {
 impl Fixtures {
     fn create() -> Result<Self> {
         use std::io::Write;
-        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/p22");
-        // Inspect each existing ancestor, never create beneath an alias/reparse point.
+        let base =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/p22/fixtures");
         let base = std::path::absolute(base).map_err(|_| "fixture base")?;
-        for ancestor in base.ancestors() {
+        // Preflight only: trusted owned fixtures, not an adversarial filesystem sandbox.
+        for ancestor in base.parent().unwrap().ancestors() {
             non_reparse(ancestor, true)?;
         }
+        match std::fs::create_dir(&base) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(_) => return Err("fixture base creation"),
+        }
+        non_reparse(&base, true)?;
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_| "fixture clock")?
@@ -519,12 +526,16 @@ impl Fixtures {
             GetCurrentProcessId()
         }));
         std::fs::create_dir(&root).map_err(|_| "fixture create-new directory")?;
+        println!(
+            "stage=fixture filesystem=retained relative_path=target/p22/fixtures/{} reason=directory_creation_identity_not_proven including_partial_creation_failure",
+            root.file_name().unwrap().to_string_lossy()
+        );
         use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
         use windows_sys::Win32::Storage::FileSystem::{
-            DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
         };
         let root_handle = std::fs::OpenOptions::new()
-            .access_mode(DELETE | FILE_READ_ATTRIBUTES)
+            .access_mode(FILE_READ_ATTRIBUTES)
             .share_mode(0)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
             .open(&root)
@@ -538,11 +549,15 @@ impl Fixtures {
         {
             return Err("fixture own-directory reparse");
         }
-        let paths = vec![root.join("é-𐐀.txt")];
-        let mut files = Vec::new();
-        for path in [root.join("P22.owned"), paths[0].clone()] {
+        let mut fixtures = Self {
+            _root_handle: root_handle,
+            files: Vec::new(),
+            paths: vec![root.join("é-𐐀.txt")],
+        };
+        for path in [root.join("P22.owned"), fixtures.paths[0].clone()] {
             let mut file = std::fs::OpenOptions::new()
-                .access_mode(GENERIC_WRITE | DELETE)
+                .write(true)
+                .access_mode(GENERIC_WRITE)
                 .share_mode(0)
                 .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
                 .create_new(true)
@@ -550,44 +565,89 @@ impl Fixtures {
                 .map_err(|_| "fixture create-new file; retained owned leftovers")?;
             file.write_all(b"P22 generated private packet fixture\n")
                 .map_err(|_| "fixture file write; retained owned leftovers")?;
-            files.push(file);
+            fixtures.files.push(file);
         }
         println!(
             "stage=fixture created_files=2 generated_directory={}",
             root.file_name().unwrap().to_string_lossy()
         );
-        Ok(Self {
-            root_handle,
-            files,
-            paths,
-        })
+        Ok(fixtures)
     }
-    fn cleanup(self) -> Result<()> {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Storage::FileSystem::{
-            FILE_DISPOSITION_INFO, FileDispositionInfo, SetFileInformationByHandle,
-        };
-        // Only original retained create-new handles are deleted, never reopened
-        // paths, recursive removal or marker-based claims on existing files.
-        // A preflight ancestor check is not an adversarial filesystem sandbox.
-        let remove = |file: &std::fs::File| {
-            let info = FILE_DISPOSITION_INFO { DeleteFile: true };
-            check("SetFileInformationByHandle/own-fixture-delete", || unsafe {
-                SetFileInformationByHandle(
-                    file.as_raw_handle(),
-                    FileDispositionInfo,
-                    (&info as *const FILE_DISPOSITION_INFO).cast(),
-                    size_of::<FILE_DISPOSITION_INFO>() as u32,
-                )
-            })
-        };
-        for file in &self.files {
-            remove(file)?;
+    fn release(self) {
+        drop(self);
+    }
+}
+impl Drop for Fixtures {
+    fn drop(&mut self) {
+        // Fields release their original handles on success and every error path.
+        // Retain bytes: create_dir followed by open does not prove directory identity.
+        println!(
+            "stage=fixture filesystem=retained relative_path=target/p22/fixtures/{} handles=release_on_drop reason=directory_creation_identity_not_proven",
+            self.paths[0]
+                .parent()
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixture_release_retains_success_and_failure_paths() {
+        use std::os::windows::fs::OpenOptionsExt;
+        for fail in [false, true] {
+            let fixtures = Fixtures::create().unwrap();
+            let root = fixtures.paths[0].parent().unwrap().to_path_buf();
+            let paths = [root.join("P22.owned"), fixtures.paths[0].clone()];
+            let result: Result<()> = (|| {
+                let fixtures = fixtures;
+                if fail {
+                    return Err("owned fixture-only injected data-phase failure");
+                }
+                fixtures.release();
+                Ok(())
+            })();
+            assert_eq!(result.is_err(), fail);
+            assert!(root.is_dir(), "release must retain the generated directory");
+            use windows_sys::Win32::Storage::FileSystem::{
+                FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES,
+            };
+            drop(
+                std::fs::OpenOptions::new()
+                    .access_mode(FILE_READ_ATTRIBUTES)
+                    .share_mode(0)
+                    .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                    .open(&root)
+                    .unwrap(),
+            );
+            for path in paths {
+                // Exclusive reopen proves the original handles were released.
+                let mut file = std::fs::OpenOptions::new()
+                    .read(true)
+                    .share_mode(0)
+                    .open(&path)
+                    .unwrap();
+                let mut bytes = Vec::new();
+                std::io::Read::read_to_end(&mut file, &mut bytes).unwrap();
+                assert_eq!(bytes, b"P22 generated private packet fixture\n");
+                drop(file);
+                assert_eq!(
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)
+                        .unwrap_err()
+                        .kind(),
+                    std::io::ErrorKind::AlreadyExists,
+                    "existing fixture names must not be overwritten"
+                );
+                assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            }
         }
-        drop(self.files);
-        remove(&self.root_handle)?;
-        drop(self.root_handle);
-        println!("stage=fixture cleanup=original-handles-only");
-        Ok(())
     }
 }
