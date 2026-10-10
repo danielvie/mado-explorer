@@ -1,0 +1,23 @@
+version: '3'
+
+vars:
+  MANIFEST: '{{.TASKFILE_DIR}}/Cargo.toml'
+  OUTPUT: '{{.TASKFILE_DIR}}/../../target/p18'
+
+tasks:
+  default:
+    desc: List component tasks
+    cmds:
+      - task --list
+  run:
+    desc: Run create-only native fixture self-checks, not an application
+    cmds:
+      - task: test
+  test:
+    desc: Run built-in Windows creation safety tests on owned generated fixtures
+    cmds:
+      - cargo test --locked --manifest-path "{{.MANIFEST}}" --target-dir "{{.OUTPUT}}" -- --test-threads=1
+  clean:
+    desc: Remove only this checkout's generated target/p18 build output
+    cmds:
+      - cargo clean --manifest-path "{{.MANIFEST}}" --target-dir "{{.OUTPUT}}"
