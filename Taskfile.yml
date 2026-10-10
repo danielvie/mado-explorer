@@ -26,6 +26,12 @@ tasks:
       - task test:pdf-controls
       - task test:keep-both
       - task test:confirmation
+      - task test:clipboard
+
+  test:clipboard:
+    desc: Test accepted file packets and owned native memory without global clipboard access
+    cmds:
+      - cargo test --locked --manifest-path components/file-clipboard/Cargo.toml --target-dir target/p05
 
   test:confirmation:
     desc: Test accepted immutable deletion-intent confirmations without OS deletion
