@@ -1,0 +1,10 @@
+[package]
+name = "mado-directory-watch"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dependencies]
+# F13 requires native notifications; do not implement overlapped Windows I/O here.
+notify = "=8.2.0"
