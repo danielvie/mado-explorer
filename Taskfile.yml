@@ -11,10 +11,21 @@ tasks:
     cmds:
       - cargo run -- {{.CLI_ARGS}}
 
+  run:gui:
+    desc: Launch the preserved graphical explorer (optionally pass a folder after --)
+    cmds:
+      - task run -- {{.CLI_ARGS}}
+
+  test:core:
+    desc: Test the independent shared browsing core without GUI or terminal frameworks
+    cmds:
+      - cargo test --locked --offline --manifest-path crates/mado-core/Cargo.toml --target-dir target/core
+
   test:
     desc: Run application, accepted backend and rolling workflow guard checks
     cmds:
       - cargo test
+      - task test:core
       - task workflow:test
       - task test:pdf
       - task test:summary
