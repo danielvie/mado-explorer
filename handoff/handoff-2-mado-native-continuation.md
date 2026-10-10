@@ -1,0 +1,46 @@
+# Mado native autonomous continuation
+
+## Ownership and authority
+
+Native session01a12207 is the ONLY supervisor/integrator. Human explicitly authorized coordinated transfer from01a121a0 and autonomous completion of remaining approved implementation/integration/reviews/available verification. Old01a121a0 is relay-only, no writes/dispatch. Continue within SPEC/CONTEXT, five shared writers/three fresh reviewers/one serial integrator, exclusive checkouts, native Agent notifications. No batch barrier/automatic approval/model or framework change. Actual visual/user approval is deferred, never passed or a reason to stop unrelated code.
+
+This is a recovery checkpoint for native compaction, NOT transfer to a second supervisor. No session JSONL editing, detached approval loop or new owner without coordination. Read current canonical docs instead of reinterpreting this snapshot as liveness.
+
+## Canonical artifacts
+
+- C:/SANDBOX/REPOS/mado-explorer.git/AGENTS.md
+- C:/SANDBOX/REPOS/mado-explorer.git/SPEC.md
+- C:/SANDBOX/REPOS/mado-explorer.git/CONTEXT.md
+- C:/SANDBOX/REPOS/mado-explorer.git/PROGRESS.md, newest S016 bullets
+- C:/SANDBOX/REPOS/mado-explorer.git/LANES.md
+- C:/SANDBOX/REPOS/mado-explorer.git/handoff/s016-native-supervisor-state.md, historical dispatch boundaries only
+
+Last inspected main635ffdf607ac8cb07e4da63a019598cda37ca03f, tracked clean. Preserve historical untracked .pi/workflows/project-review.js and handoff/handoff-1-rust-explorer-implementation.md; never blanket stage/delete. Main remains runnable.
+
+## Accepted source, not documentation-only progress
+
+Compact ROOT workspace S016 is accepted3ada2f3: actual tab/navigation/path/breadcrumb/table/filter-count footer/layout+visibility menus, same existing read-only scope. Fresh review clear, parent9focused/full119root checks, native build, owned save/close/restart and own-HWND client capture pass. Durable evidence/procedure handoff/s016-native-validation.md, handoff/s016-owned-capture.ps1, validation/file-pilot/evidence/s016-owned-listing-125.png/json. DPI120/client1500x1000/125%, inherited hover tooltip documented. No matched File Pilot or Narrator/full DPI acceptance. Capture binary/source hashes recorded; exact Git evidence bytes fixed/verified with scoped attributes atffce416, no corrupt current PNG.
+
+Other accepted backend source: clipboard P05/P19 at48ec07f/6e59025 (17 safe packet/owned Shell checks, no app/global clipboard); create P18 at65eec22 (14 checks/one privileged pending, LOCAL NTFS-only partial); shared CPU reservation P20 a88943d (25 checks+2 compile-fail doctests, native opt-in ignored); native notification P17 b39c4bd (20 checks including actual overflow and corrected shared-stop races, old failing notify diagnostic preserved separately). PROGRESS records exact preserved subtree/archive hashes. These backends are not complete application criteria. No production previews, mutating commands or app clipboard enabled.
+
+## Current queued/native stages
+
+Treat these as receipts until actual state reconciled once after interruption. Do not poll/wait loops or duplicate active writers. Old result handles may be cleaned before delayed notifications. If get_subagent_result says not found, read the known task `.output` artifact's FINAL TEXT only with NDJSON filtering; never dump reasoning/encrypted records. Exact Git head/source evidence must match. Already recovered original notifications are duplicates, not new dispatch triggers.
+
+- P21 image-capped-service writerd59dd77b-289f-44a. Checkout C:/SANDBOX/WORKTREES/mado-explorer/image-capped-service, branch lane/image-capped-service, baselinea88943dc077179e0f70f04e0b0fe939df0b15112. Own components/image-preview-service/** ONLY. Supervisor explicitly authorizes OUR compiled Rust helper/private Windows Job+IPC and bounded OWNED native cap/cancel/crash/setup/handle proof, no GUI/personal/clipboard/elevation/external binary probes. Full helper cap128MiB+RGBA32MiB+proven control storage on SAME shared256MiB budget; no dummy Vec/secondbudget. Job-list assignment at suspended process creation, verify before resume, no breakaway/one child including retiring. Retain charges/buffers through real termination/IPC acknowledgement. Legacy beae376 decoder never executes in parent, old branch archived. Protocol native UTF16/framing/length/EOF/target/stale safeguards, readonly nonfollowing files, one fixed worker/bounded targets. Next: consume true completion/limitations, parent source/safety checks, fresh unsafe/protocol/budget review before promotion. GUI/GPU128MiB/conversion/cache remain later.
+- S018 app watch original sourcec06776b815bb4b1c0cf07f809b902070bd0f7b3c, source5ef1947, 14 focused/133 root recorded; parent full adapter/diff/tests inspection and14 rerun pass. Fresh reviewer01aec234 found ONE blocker: service-wide startup error/stopped rev0 discarded by admission/revision guard. Unapproved, archived archive/s018-startup-blocked. Fresh S018-R01 writer3ffd7391-ad34-4f3 owns ONLY src/watch_adapter.rs,src/watch_tests.rs,handoff/s018-watch-adapter.md in C:/SANDBOX/WORKTREES/mado-explorer/compact-workspace branch lane/compact-workspace startingc06776b8. Fix consume service-wide errors/stopped independently, preserve strict target stale filtering/bounds. Controlled stopped-before-admission red/green, no actual failure/personal probes. Uses shared root target cache; supervisor must not build root while active. Next: consume exact fix, fresh corrected-head routing review, serial integration/rerun. Production NATIVE_CAPABILITY_GATE_CLEARED remains FALSE, no runtime override. Source adapter tests exercise actual native events->App logic->directory worker/current rows, A->B safe deferral, Retry/close; controlled failures labeled separately. Do not clear gate or claim full F13.
+- P22 capability source0c7bc46768c0ff7167ca4f07249d2afdb5b603be, checkout C:/SANDBOX/WORKTREES/mado-explorer/clipboard-capability, branch lane/clipboard-capability. Own validation/clipboard-capability/**; stage1 writer84f4e1c3 completed. ONE correctly bounded setup-only CreateWindowStationW(NULL,CWF_CREATE_ONLY1,rights0x2e,protected current-user+SYSTEM SD) failed NULL/GetLastError183 AlreadyExists. No station assignment/desktop/HWND reached; reads0/writes0/clipboardcalls0. Task run FAILED honestly;3 pure checks/fmt/compile pass, parent rerun safe only. Stage2 compiled NOT RUN/NOT AUTHORIZED. Exact transcript/source/binary hashes/HANDOFF retained. Fresh privacy reviewerbd0f3727-ed16-4e3 admitted. Next: consume findings, preserve BLOCKED diagnostic, do not rerun183 or reopen existing station/name Admin/elevate/token switch/fallback personal clipboard. Root resources never touched. Native isolation/capability remains UNVERIFIED.
+
+## Actual capability decision and safety limits
+
+Original private-station Win32 error5 had no retained masks/source; evidence lookupb9dd79b7 completed missing-proof finding. Microsoft primary docs read: each station owns a clipboard; WinSta0 is interactive; only Admins may name a station; NULL system name+CWF_CREATE_ONLY rejects existing objects. The new183 is a real fresh-new-instance isolation limitation, not a passing probe. No inferred blanket Windows impossibility, no fallback or arbitrary permissions.
+
+Generic autonomous continuation NEVER authorized reading/replacing personal clipboard. Explicitly asked human via relay for ONE owned-fixture interactive probe that may CLEAR/REPLACE clipboard with NO universal backup/restore guarantee, or an explicit approved alternate validation/gate policy. Until authority/evidence resolves the inherited pre-beyond-checkpoint2 gate, production activation remains off and source continues transparently. Deferred visual acceptance is unrelated. Do not erase/reuse unknown existing private station data.
+
+Rename legacy hard-link coalescing remains unsafe/fail-closed, no weaker no-overwrite/preflight race guarantee. P18 share flags alone don't prevent metadata reparse conversion; native OBJ_DONT_REPARSE bound FILE_CREATE matters,1921 post-check conversion proof, ancestor attempted conversion145 not successful converted-ancestor coverage. Other providers/valid-name policy/ACL/app operation queue/editor/reconciliation still needed; no permanent local-NTFS scope deferral.
+
+Packaging, native renderer notices, remaining operations/copy/move/trash/delete, context/drop/clipboard/UI previews, performance20k/30fps/p95,100/150/200%DPI/Narrator and clean-machine/manual gates remain required. Don't mark them implemented/verified from standalone helpers or compile. Do not stop after another preparation checkpoint; select meaningful usable app behaviors and resolve genuine blockers without unsafe activation.
+
+## Suggested skills
+
+Apply clear-explanations and unslop to reports; pi-intercom for relay/ownership, handoff for another native recovery document. Use how/why or domain-modeling only for bounded architecture/decision questions. No Claude/Opus unless human explicitly asks. Global /mado-workflow resources use five shared writers/three reviewers/serial integration; per-run JS has implement versus review stages. This project currently schedules individual native Agent events, not that global JS or an unattended shell loop.
