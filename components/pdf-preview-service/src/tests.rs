@@ -795,6 +795,188 @@ fn idle_stop_joins_without_a_request_or_detach() {
 }
 
 #[test]
+fn p20_nonallocating_reservation_shares_allocation_admission_and_release() {
+    let budget = CpuBudget::new();
+    let other = budget.clone();
+    let small = other.allocate(32).unwrap();
+    let helper_bytes = 128 * 1024 * 1024;
+    let helper = budget.reserve_capacity(helper_bytes).unwrap();
+    assert_eq!(helper.charged_bytes(), helper_bytes);
+    // The public reservation contains only the existing Lease, not a dummy Vec.
+    assert_eq!(
+        std::mem::size_of::<CpuReservation>(),
+        std::mem::size_of::<Lease>()
+    );
+    let remaining = other
+        .reserve_capacity(CPU_BUFFER_LIMIT - helper_bytes - small.capacity())
+        .unwrap();
+    assert_eq!(budget.used(), CPU_BUFFER_LIMIT);
+    assert_eq!(other.used(), CPU_BUFFER_LIMIT);
+    assert_eq!(other.allocate(1).unwrap_err(), Failure::BudgetExceeded);
+    assert_eq!(
+        budget.reserve_capacity(1).unwrap_err(),
+        Failure::BudgetExceeded
+    );
+    drop(remaining);
+    let reused = other.allocate(16).unwrap();
+    assert_eq!(budget.used(), helper_bytes + 48);
+    drop(helper);
+    assert_eq!(budget.used(), 48);
+    let helper_again = other.reserve_capacity(helper_bytes).unwrap();
+    assert_eq!(budget.used(), helper_bytes + 48);
+    drop(helper_again);
+    drop(reused);
+    drop(small);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn p20_transfer_at_full_budget_shrinks_to_real_capacity_once() {
+    let budget = CpuBudget::new();
+    let reservation = budget.reserve_capacity(128 * 1024 * 1024).unwrap();
+    let held = budget
+        .clone()
+        .reserve_capacity(CPU_BUFFER_LIMIT - reservation.charged_bytes())
+        .unwrap();
+    assert_eq!(budget.used(), CPU_BUFFER_LIMIT);
+    // A second admission would fail here. Only 32 actual bytes are allocated.
+    let mut output = reservation.into_buffer(32).unwrap();
+    assert_eq!(output.capacity(), 32);
+    assert_eq!(output.bytes(), &[0; 32]);
+    assert_eq!(output.lease.bytes, output.capacity());
+    assert_eq!(budget.used(), held.charged_bytes() + output.capacity());
+    output.bytes_mut()[31] = 9;
+    assert_eq!(output.bytes()[31], 9);
+    drop(held);
+    assert_eq!(budget.used(), 32);
+    let exact = budget.reserve_capacity(7).unwrap().into_buffer(7).unwrap();
+    assert_eq!(exact.capacity(), 7);
+    assert_eq!(budget.used(), 39);
+    drop(output);
+    assert_eq!(budget.used(), 7);
+    drop(exact);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn p20_invalid_and_overflow_sizes_refund_only_consumed_reservation() {
+    let budget = CpuBudget::new();
+    let other = budget.clone();
+    let small = budget.allocate(7).unwrap();
+    for bytes in [usize::MAX, CPU_BUFFER_LIMIT, CPU_BUFFER_LIMIT + 1] {
+        assert_eq!(
+            other.reserve_capacity(bytes).unwrap_err(),
+            Failure::BudgetExceeded
+        );
+        assert_eq!(budget.used(), 7);
+    }
+    for bytes in [65, usize::MAX] {
+        let reservation = other.reserve_capacity(64).unwrap();
+        assert_eq!(budget.used(), 71);
+        // Errors consume the reservation, without panicking or allocating output.
+        assert_eq!(
+            reservation.into_buffer(bytes).unwrap_err(),
+            Failure::BudgetExceeded
+        );
+        assert_eq!(budget.used(), 7);
+    }
+    let empty = other.reserve_capacity(64).unwrap().into_buffer(0).unwrap();
+    assert_eq!(empty.capacity(), 0);
+    assert!(empty.bytes().is_empty());
+    assert_eq!(budget.used(), 7);
+    drop(empty);
+    assert_eq!(budget.used(), 7);
+    assert_eq!(
+        other
+            .reserve_capacity(0)
+            .unwrap()
+            .into_buffer(1)
+            .unwrap_err(),
+        Failure::BudgetExceeded
+    );
+    assert_eq!(budget.used(), 7);
+    let empty = other.reserve_capacity(0).unwrap().into_buffer(0).unwrap();
+    drop(empty);
+    drop(small);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn p20_buffer_free_precedes_automatic_lease_refund() {
+    // Structural guard, not an allocator/process-memory measurement. Pin the
+    // complete destructor so a refund before Vec destruction fails this check.
+    let source = include_str!("lib.rs");
+    let destructor = source
+        .split("impl Drop for CpuBuffer {")
+        .nth(1)
+        .unwrap()
+        .split("\n#[derive(Debug)]")
+        .next()
+        .unwrap();
+    let expected = r#"
+    fn drop(&mut self) {
+        // Free the actual allocation BEFORE the lease field releases its charge.
+        drop(self.pixels.take());
+    }
+}
+"#;
+    let compact = |text: &str| text.split_whitespace().collect::<String>();
+    assert_eq!(compact(destructor), compact(expected));
+    let budget = CpuBudget::new();
+    for _ in 0..100 {
+        let output = budget.reserve_capacity(64).unwrap().into_buffer(5).unwrap();
+        let held = budget.allocate(7).unwrap();
+        assert_eq!(budget.used(), 12);
+        drop(output);
+        assert_eq!(budget.used(), 7);
+        drop(held);
+        assert_eq!(budget.used(), 0);
+    }
+}
+
+#[test]
+fn p20_external_reservation_counts_with_source_and_held_service_frames() {
+    let budget = CpuBudget::new();
+    let external = budget.reserve_capacity(128 * 1024 * 1024).unwrap();
+    let mut c = Controlled::new(budget.clone());
+    let target = c.target();
+    c.submit(target, Path::new("first-logical-frame"));
+    c.enter();
+    assert_eq!(
+        budget.used(),
+        external.charged_bytes() + SOURCE_RESERVATION + 16
+    );
+    c.success();
+    let frame = response(&c.service, target).result.unwrap();
+    assert_eq!(
+        budget.used(),
+        external.charged_bytes() + frame.charged_bytes()
+    );
+    c.submit(target, Path::new("second-logical-frame"));
+    c.enter();
+    assert_eq!(
+        budget.used(),
+        external.charged_bytes() + frame.charged_bytes() + SOURCE_RESERVATION + 16
+    );
+    let remaining = budget
+        .reserve_capacity(CPU_BUFFER_LIMIT - budget.used())
+        .unwrap();
+    assert_eq!(budget.allocate(1).unwrap_err(), Failure::BudgetExceeded);
+    c.success();
+    let second = response(&c.service, target).result.unwrap();
+    assert_eq!(budget.used(), CPU_BUFFER_LIMIT - SOURCE_RESERVATION);
+    c.service.join().unwrap();
+    drop(remaining);
+    assert_eq!(budget.used(), external.charged_bytes() + 32);
+    drop(external);
+    assert_eq!(budget.used(), 32);
+    drop(frame);
+    assert_eq!(budget.used(), 16);
+    drop(second);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
 fn production_renderer_path_reports_missing_library_without_ui_io() {
     // Own generated directory only. No native DLL, personal path or download.
     let owned = std::env::temp_dir().join(format!(
