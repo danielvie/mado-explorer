@@ -1,0 +1,24 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List component tasks
+    cmds:
+      - task --list
+  run:
+    desc: Build our helper and run a safe generated-owned malformed-source self-check
+    dir: ../..
+    cmds:
+      - cargo build --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --bins
+      - cargo run --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --bin p21-selfcheck
+  test:
+    desc: Build our helper and run component codec, protocol, budget and native Job/IPC tests
+    dir: ../..
+    cmds:
+      - cargo build --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21 --bin mado-image-helper
+      - cargo test --locked --offline --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21
+  clean:
+    desc: Remove only this component's generated target/p21 build output and owned fixtures
+    dir: ../..
+    cmds:
+      - cargo clean --manifest-path components/image-preview-service/Cargo.toml --target-dir target/p21
