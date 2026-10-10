@@ -142,6 +142,7 @@ tasks:
         node -e "const fs=require('node:fs'),a=require('node:assert/strict'),s=JSON.parse(fs.readFileSync('design/file-explorer-layout.excalidraw','utf8')),e=s.elements,ids=new Set(e.map(x=>x.id)),frames=new Set(e.filter(x=>x.type==='frame').map(x=>x.id));a.equal(s.type,'excalidraw');a.equal(s.version,2);a.equal(ids.size,e.length);a.equal(frames.size,3);a.ok(e.every(x=>!x.isDeleted&&!x.locked&&(!x.frameId||frames.has(x.frameId))&&Number.isFinite(x.x)&&Number.isFinite(x.y)&&x.width>=0&&x.height>=0));a.ok(e.filter(x=>x.type==='text').every(x=>x.fontFamily===5&&x.fontSize>=16));console.log(e.length+' editable elements; 3 frames; checks passed');"
 
   clean:
-    desc: Remove only generated Rust build output in target
+    desc: Cleanup disabled pending retained-fixture preservation review
     cmds:
-      - cargo clean --target-dir target
+      - >-
+        node -e "console.error('Build cleanup disabled pending safety correction: target contains retained fixtures and evidence. No files removed.'); process.exit(1);"
