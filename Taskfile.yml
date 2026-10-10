@@ -29,6 +29,18 @@ tasks:
       - task test:clipboard
       - task test:create
 
+  test:native-workspace:
+    desc: Check owned native workspace save and restart without personal settings or clipboard
+    cmds:
+      - cargo build --locked
+      - pwsh -NoProfile -ExecutionPolicy Bypass -File handoff/s011-native-smoke.ps1 -ExpectWrites
+
+  capture:workspace:
+    desc: Capture only a launched own window using the retained V001 fixture, no desktop or clipboard
+    cmds:
+      - cargo build --locked
+      - pwsh -NoProfile -ExecutionPolicy Bypass -File handoff/s016-owned-capture.ps1
+
   test:create:
     desc: Test reviewed create-only local NTFS backend using owned disposable fixtures
     cmds:

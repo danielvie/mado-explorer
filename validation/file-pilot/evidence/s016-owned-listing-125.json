@@ -1,0 +1,15 @@
+{
+  "pid": 61028,
+  "capture": "PrintWindow of launched own HWND, measured client crop, no desktop/clipboard",
+  "clientPixels": [
+    1500,
+    1000
+  ],
+  "filePilotComparison": "PENDING",
+  "fixture": "C:/SANDBOX/WORKTREES/mado-explorer/raster-viewport/target/visual/v001-file-pilot-26cbf184-176d-4a38-b08d-2cd84a920c20",
+  "binarySha256": "8303B4C4C792F8AA042C49F0A154F7C9B3BE3CD344D4928E0CA2B3B2C00D6EFB",
+  "source": "3ada2f30d4277ca0c3aa0c3b950320d0d4db1e68",
+  "captureUtc": "2026-10-10T09:56:52.5279866Z",
+  "userVisualApproval": "PENDING",
+  "dpi": 120
+}
