@@ -27,6 +27,12 @@ tasks:
       - task test:keep-both
       - task test:confirmation
       - task test:clipboard
+      - task test:create
+
+  test:create:
+    desc: Test reviewed create-only local NTFS backend using owned disposable fixtures
+    cmds:
+      - cargo test --locked --manifest-path components/fs-create/Cargo.toml --target-dir target/p18 -- --test-threads=1
 
   test:clipboard:
     desc: Test accepted file packets and owned native memory without global clipboard access
