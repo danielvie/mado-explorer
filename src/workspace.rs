@@ -260,11 +260,17 @@ impl Explorer {
         let mut dragging = false;
         let mut tabs = Vec::new();
         let mut strip_rect = egui::Rect::NOTHING;
+        let mut split = None;
+        let mut close_pane = false;
+        let focused = pane == self.focused;
         let p = &mut self.panes[pane];
         ui.horizontal(|ui| {
-            let width = (ui.available_width() - 40.0).max(80.0);
+            ui.strong(if focused { "Focused" } else { "Pane" })
+                .on_hover_text("Focused pane receives browsing commands. F6 changes pane.");
+            let width = (ui.available_width() - 95.0).max(80.0);
             let strip = egui::ScrollArea::horizontal()
                 .id_salt((p.id, "pane-tabs"))
+                .animated(false)
                 .max_width(width)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
@@ -298,8 +304,18 @@ impl Explorer {
                                 if response.clicked() {
                                     activate = Some(index);
                                 }
-                                if ui
-                                    .button("x")
+                                let close_tab = ui.button("x");
+                                close_tab.widget_info(|| {
+                                    egui::WidgetInfo::labeled(
+                                        egui::WidgetType::Button,
+                                        close_tab.enabled(),
+                                        format!(
+                                            "Close tab: {}",
+                                            native::display(location.as_os_str())
+                                        ),
+                                    )
+                                });
+                                if close_tab
                                     .on_hover_text(format!(
                                         "Close tab: {} (Ctrl+W closes the active tab)",
                                         native::display(location.as_os_str())
@@ -314,10 +330,31 @@ impl Explorer {
                     });
                 });
             strip_rect = strip.inner_rect.intersect(ui.clip_rect());
-            new = ui
-                .button("+")
+            let plus = ui.button("+");
+            plus.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, plus.enabled(), "New tab")
+            });
+            new = plus
                 .on_hover_text("New tab at the committed location (Ctrl+T)")
                 .clicked();
+            ui.menu_button("Layout", |ui| {
+                if ui.button("Split left/right").clicked() {
+                    split = Some(Axis::LeftRight);
+                    ui.close();
+                }
+                if ui.button("Split top/bottom").clicked() {
+                    split = Some(Axis::TopBottom);
+                    ui.close();
+                }
+                if ui
+                    .button("Close pane")
+                    .on_hover_text("Close this pane; final pane gets a fresh home tab")
+                    .clicked()
+                {
+                    close_pane = true;
+                    ui.close();
+                }
+            });
         });
         p.reveal_active_tab = false;
         self.tab_strips.push(tab_drag::TabStripGeometry {
@@ -328,9 +365,13 @@ impl Explorer {
         if dragging {
             surrender_focus(ui.ctx());
         }
-        if close.is_some() || activate.is_some() || new {
+        if close.is_some() || activate.is_some() || new || split.is_some() || close_pane {
             self.focus_pane(pane);
-            if let Some(index) = close {
+            if close_pane {
+                self.close_pane();
+            } else if let Some(axis) = split {
+                self.split_pane(axis);
+            } else if let Some(index) = close {
                 self.close_tab(index);
             } else if let Some(index) = activate {
                 self.activate_tab(index);
@@ -344,22 +385,30 @@ impl Explorer {
 
     #[cfg(test)]
     pub(super) fn toolbar(&mut self, ui: &mut egui::Ui) -> bool {
-        self.toolbar_in(ui, self.focused)
+        // Existing focused-control checks render both bands before dispatch.
+        let footer_editing = self.footer_in(ui, self.focused);
+        self.toolbar_in(ui, self.focused, footer_editing)
     }
 
-    fn toolbar_in(&mut self, ui: &mut egui::Ui, pane: usize) -> bool {
+    fn footer_in(&mut self, ui: &mut egui::Ui, pane: usize) -> bool {
+        let p = &mut self.panes[pane];
+        let tab = &mut p.tabs[p.active];
+        ui.push_id(tab.id, |ui| tab.footer(ui)).inner
+    }
+
+    fn toolbar_in(&mut self, ui: &mut egui::Ui, pane: usize, footer_editing: bool) -> bool {
         let p = &mut self.panes[pane];
         let tab = &mut p.tabs[p.active];
         let dragging = egui::DragAndDrop::has_payload_of_type::<tab_drag::TabDrag>(ui.ctx());
         let (editing, command) = ui
             .push_id(tab.id, |ui| {
-                tab.toolbar(ui, pane == self.focused && !dragging)
+                tab.toolbar(ui, pane == self.focused && !dragging && !footer_editing)
             })
             .inner;
         if let Some((location, intent)) = command {
             self.navigate_in(pane, location, intent);
         }
-        editing
+        editing || footer_editing
     }
 
     #[cfg(test)]
@@ -367,7 +416,10 @@ impl Explorer {
         self.window_status(ui);
         let p = &self.panes[self.focused];
         let tab = &p.tabs[p.active];
-        ui.push_id(tab.id, |ui| tab.status(ui));
+        ui.push_id(tab.id, |ui| {
+            tab.status(ui);
+            ui.horizontal(|ui| tab.counts(ui));
+        });
     }
 
     #[cfg(test)]
@@ -396,27 +448,8 @@ pub(super) fn surrender_focus(ctx: &egui::Context) {
 
 impl Explorer {
     pub(super) fn workspace(&mut self, ui: &mut egui::Ui) {
-        let mut split = None;
-        ui.horizontal(|ui| {
-            if ui.button("Split left/right").clicked() {
-                split = Some(Axis::LeftRight);
-                surrender_focus(ui.ctx());
-            }
-            if ui.button("Split top/bottom").clicked() {
-                split = Some(Axis::TopBottom);
-                surrender_focus(ui.ctx());
-            }
-            if ui
-                .button("Close pane")
-                .on_hover_text("Close focused pane; final pane gets a fresh home tab")
-                .clicked()
-            {
-                self.close_pane();
-                surrender_focus(ui.ctx());
-            }
-        });
         if let Some(error) = &self.layout_error {
-            ui.label(error);
+            ui.colored_label(egui::Color32::from_rgb(255, 180, 130), error);
         }
         self.window_status(ui);
         let size = ui.available_size().max(self.layout.minimum());
@@ -433,16 +466,6 @@ impl Explorer {
                 let mut dividers = Vec::new();
                 self.layout
                     .rectangles(bounds, &mut self.pane_rects, &mut dividers);
-                // Use this frame's viewport, not stale pre-resize geometry.
-                if let Some(axis) = split {
-                    if self.split_pane(axis) {
-                        self.pane_rects.clear();
-                        dividers.clear();
-                        self.layout
-                            .rectangles(bounds, &mut self.pane_rects, &mut dividers);
-                    }
-                    ui.ctx().request_repaint();
-                }
                 // Resolve pointer focus before *any* pane can consume keyboard input.
                 self.focus_pointer_pane(ui);
                 if ui.input_mut(|input| {
@@ -541,15 +564,13 @@ impl Explorer {
                 ui.ctx().request_repaint();
             }
         }
-        let focused = pane == self.focused;
-        child.strong(if focused {
-            "Focused pane (F6: next)"
-        } else {
-            "Pane"
-        });
+        let popup_input = egui::Popup::is_any_open(ui.ctx());
         let count = self.panes.len();
         let old_tab = self.panes[pane].tabs[self.panes[pane].active].id;
-        self.tab_strip_in(&mut child, pane);
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(34, 41, 44))
+            .inner_margin(4.0)
+            .show(&mut child, |ui| self.tab_strip_in(ui, pane));
         // Closing/cycling a context cannot dispatch old-context row commands.
         if self.panes.len() != count
             || self.panes[pane].id != id
@@ -564,49 +585,94 @@ impl Explorer {
             .show(&mut child, |ui| {
                 let dragging =
                     egui::DragAndDrop::has_payload_of_type::<tab_drag::TabDrag>(ui.ctx());
-                let editing = self.toolbar_in(ui, pane) || dragging;
-                if pane == self.focused && !dragging {
-                    if let Some(command) = tab_shortcut(ui.ctx(), editing) {
-                        self.apply_tab_shortcut(command);
-                        surrender_focus(ui.ctx());
-                        ui.ctx().request_repaint();
-                        return;
-                    }
-                }
-                ui.separator();
-                let p = &self.panes[pane];
-                let tab = &p.tabs[p.active];
-                ui.push_id(tab.id, |ui| tab.status(ui));
-                ui.separator();
-                // A short pane scrolls its controls instead of overlapping the
-                // table. The table keeps its own independent row scroll state.
-                let table_rect = egui::Rect::from_min_size(
-                    ui.cursor().min,
-                    egui::vec2(
-                        rect.width() - 10.0,
-                        (rect.bottom() - ui.cursor().top() - 5.0).max(220.0),
-                    ),
+                let width = ui.available_width();
+                let wide = width - 8.0 >= 660.0;
+                let footer_height = if wide { 36.0 } else { 62.0 };
+                let header_height = if wide { 66.0 } else { 96.0 };
+                // A short pane scrolls the complete body. Reserve a real row
+                // viewport, never overlap the footer with navigation or rows.
+                let body_height = ui
+                    .available_height()
+                    .max(header_height + 100.0 + footer_height);
+                let footer_rect = egui::Rect::from_min_size(
+                    ui.cursor().min + egui::vec2(0.0, body_height - footer_height),
+                    egui::vec2(width, footer_height),
                 );
-                let mut table_ui = ui.new_child(
+                let mut footer_ui = ui.new_child(
                     egui::UiBuilder::new()
-                        .id_salt("pane-table")
-                        .max_rect(table_rect)
+                        .id_salt("pane-footer")
+                        .max_rect(footer_rect)
                         .layout(egui::Layout::top_down(egui::Align::Min)),
                 );
-                table_ui.set_clip_rect(ui.clip_rect().intersect(table_rect));
-                if let Some(activation) = self.table_in(&mut table_ui, pane, editing) {
-                    match activation {
-                        Activation::Folder(location) => {
-                            self.navigate_in(pane, location, Intent::New)
+                footer_ui.set_clip_rect(ui.clip_rect().intersect(footer_rect));
+                // Footer TextEdit runs first, so both held focus and a first
+                // pointer click own this frame's keys before explorer dispatch.
+                let footer_editing = egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(25, 30, 32))
+                    .inner_margin(4.0)
+                    .show(&mut footer_ui, |ui| self.footer_in(ui, pane))
+                    .inner
+                    || popup_input;
+                let body_rect = egui::Rect::from_min_max(
+                    ui.cursor().min,
+                    egui::pos2(footer_rect.right(), footer_rect.top() - 3.0),
+                );
+                let mut body_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .id_salt("pane-body")
+                        .max_rect(body_rect)
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                body_ui.set_clip_rect(ui.clip_rect().intersect(body_rect));
+                // Long warnings scroll with navigation and the table, not
+                // over the footer. Evaluate them after this frame's editors.
+                egui::ScrollArea::vertical()
+                    .id_salt((id, "pane-messages"))
+                    .auto_shrink([false, false])
+                    .show(&mut body_ui, |ui| {
+                        let editing = egui::Frame::new()
+                            .fill(egui::Color32::from_rgb(25, 30, 32))
+                            .inner_margin(4.0)
+                            .show(ui, |ui| self.toolbar_in(ui, pane, footer_editing))
+                            .inner
+                            || dragging;
+                        if pane == self.focused && !dragging {
+                            if let Some(command) = tab_shortcut(ui.ctx(), editing) {
+                                self.apply_tab_shortcut(command);
+                                surrender_focus(ui.ctx());
+                                ui.ctx().request_repaint();
+                                return;
+                            }
                         }
-                        Activation::File(path) => {
-                            let context = ui.ctx().clone();
-                            self.launcher
-                                .request(path, Arc::new(move || context.request_repaint()));
+                        let p = &self.panes[pane];
+                        let tab = &p.tabs[p.active];
+                        ui.push_id(tab.id, |ui| tab.status(ui));
+                        let table_rect = egui::Rect::from_min_size(
+                            ui.cursor().min,
+                            egui::vec2(ui.available_width(), ui.available_height().max(100.0)),
+                        );
+                        let mut table_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .id_salt("pane-table")
+                                .max_rect(table_rect)
+                                .layout(egui::Layout::top_down(egui::Align::Min)),
+                        );
+                        table_ui.set_clip_rect(ui.clip_rect().intersect(table_rect));
+                        if let Some(activation) = self.table_in(&mut table_ui, pane, editing) {
+                            match activation {
+                                Activation::Folder(location) => {
+                                    self.navigate_in(pane, location, Intent::New)
+                                }
+                                Activation::File(path) => {
+                                    let context = ui.ctx().clone();
+                                    self.launcher
+                                        .request(path, Arc::new(move || context.request_repaint()));
+                                }
+                            }
                         }
-                    }
-                }
-                ui.advance_cursor_after_rect(table_rect);
+                        ui.advance_cursor_after_rect(table_rect);
+                    });
+                ui.advance_cursor_after_rect(footer_rect);
             });
         // A tab shortcut can close a pane during the scrolling closure.
         if self.panes.len() != count || self.panes[pane].id != id {

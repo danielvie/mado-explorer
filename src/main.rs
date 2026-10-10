@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod compact_ui_tests;
 mod directory;
 mod finder;
 #[cfg(test)]
@@ -103,7 +105,10 @@ impl Explorer {
         let mut style = egui::Style::default();
         style.visuals = egui::Visuals::dark();
         style.spacing.item_spacing = egui::vec2(8.0, 3.0);
-        style.spacing.button_padding = egui::vec2(8.0, 4.0);
+        style.spacing.button_padding = egui::vec2(6.0, 3.0);
+        style.visuals.panel_fill = egui::Color32::from_rgb(25, 30, 32);
+        style.visuals.extreme_bg_color = egui::Color32::from_rgb(16, 21, 23);
+        style.visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(34, 41, 44);
         style.visuals.selection.bg_fill = egui::Color32::from_rgb(18, 93, 111);
         style.visuals.selection.stroke =
             egui::Stroke::new(1.0, egui::Color32::from_rgb(89, 215, 235));
@@ -184,7 +189,8 @@ impl Explorer {
 impl Tab {
     fn toolbar(&mut self, ui: &mut egui::Ui, keyboard: bool) -> (bool, Option<(PathBuf, Intent)>) {
         let mut command = None;
-        let mut editing = false;
+        let mut editing = egui::Popup::is_any_open(ui.ctx());
+        let shared_band = ui.available_width() >= 660.0;
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(!self.navigation.back.is_empty(), egui::Button::new("Back"))
@@ -224,29 +230,19 @@ impl Tab {
             if ui.button("Refresh").on_hover_text("Refresh (F5)").clicked() {
                 command = Some((self.navigation.current.location.clone(), Intent::Refresh));
             }
-        });
-        let location_id = self.widget_id("location");
-        let filter_id = self.widget_id("filter");
-        ui.horizontal(|ui| {
-            ui.strong("Location");
-            let width = (ui.available_width() - 55.0).max(120.0);
-            let input = ui.add_sized(
-                [width, 26.0],
-                egui::TextEdit::singleline(&mut self.location_text)
-                    .hint_text("Folder path")
-                    .id(location_id),
-            );
-            self.location_editor_focused = input.has_focus();
-            editing = input.has_focus() || input.lost_focus();
-            let submitted =
-                input.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-            if (ui.button("Go").clicked() || submitted) && !self.location_text.is_empty() {
-                match self.navigation.resolve(&self.location_text) {
-                    Ok(path) => command = Some((path, Intent::New)),
-                    Err(error) => self.location_error = Some(error.into()),
-                }
+            if shared_band {
+                let (owns_input, destination) = self.path_input(ui);
+                editing |= owns_input;
+                command = destination.or(command.take());
             }
         });
+        if !shared_band {
+            ui.horizontal(|ui| {
+                let (owns_input, destination) = self.path_input(ui);
+                editing |= owns_input;
+                command = destination.or(command.take());
+            });
+        }
         egui::ScrollArea::horizontal()
             .id_salt("breadcrumbs")
             .show(ui, |ui| {
@@ -272,15 +268,57 @@ impl Tab {
                     }
                 });
             });
+        if command.is_none() && keyboard {
+            command = self.navigation_command(ui.ctx(), editing);
+        }
+        (editing, command)
+    }
+
+    fn path_input(&mut self, ui: &mut egui::Ui) -> (bool, Option<(PathBuf, Intent)>) {
+        let mut command = None;
+        let label = ui.label("Location");
+        let location_id = self.widget_id("location");
+        let input = ui
+            .add_sized(
+                [(ui.available_width() - 40.0).max(100.0), 26.0],
+                egui::TextEdit::singleline(&mut self.location_text)
+                    .hint_text("Folder path")
+                    .id(location_id),
+            )
+            .labelled_by(label.id);
+        self.location_editor_focused = input.has_focus();
+        let editing = input.has_focus() || input.lost_focus();
+        let submitted = input.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+        if (ui
+            .button("Go")
+            .on_hover_text("Open the entered folder path")
+            .clicked()
+            || submitted)
+            && !self.location_text.is_empty()
+        {
+            match self.navigation.resolve(&self.location_text) {
+                Ok(path) => command = Some((path, Intent::New)),
+                Err(error) => self.location_error = Some(error.into()),
+            }
+        }
+        (editing, command)
+    }
+
+    fn footer(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut editing = egui::Popup::is_any_open(ui.ctx());
+        let shared_band = ui.available_width() >= 660.0;
+        let filter_id = self.widget_id("filter");
         ui.horizontal(|ui| {
-            ui.strong("Filter");
-            let width = (ui.available_width() - 65.0).max(100.0);
-            let input = ui.add_sized(
-                [width, 24.0],
-                egui::TextEdit::singleline(&mut self.filter_text)
-                    .hint_text("Fuzzy name filter")
-                    .id(filter_id),
-            );
+            let label = ui.label("Filter");
+            let width = (ui.available_width() - if shared_band { 320.0 } else { 65.0 }).max(100.0);
+            let input = ui
+                .add_sized(
+                    [width, 24.0],
+                    egui::TextEdit::singleline(&mut self.filter_text)
+                        .hint_text("Fuzzy name filter")
+                        .id(filter_id),
+                )
+                .labelled_by(label.id);
             editing |= input.has_focus() || input.lost_focus();
             if input.has_focus()
                 && ui.input_mut(|input| {
@@ -299,8 +337,18 @@ impl Tab {
             if input.changed() || clear {
                 self.navigation.set_filter(self.filter_text.clone());
             }
+            if shared_band {
+                self.footer_details(ui);
+            }
         });
-        ui.horizontal(|ui| {
+        if !shared_band {
+            ui.horizontal(|ui| self.footer_details(ui));
+        }
+        editing || egui::Popup::is_any_open(ui.ctx())
+    }
+
+    fn footer_details(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("View", |ui| {
             let mut show = self.navigation.show_hidden_system;
             if ui.checkbox(&mut show, "Show hidden/system entries")
                 .on_hover_text("Hidden and system entries are hidden by default. This affects immediate entries only; no links are followed.")
@@ -308,29 +356,63 @@ impl Tab {
             {
                 self.navigation.set_show_hidden_system(show);
             }
-        });
-        if command.is_none() && keyboard {
-            command = match navigation_shortcut(ui.ctx(), editing) {
-                Some(Shortcut::Back) => self
-                    .navigation
-                    .back
-                    .last()
-                    .cloned()
-                    .map(|p| (p, Intent::Back)),
-                Some(Shortcut::Forward) => self
-                    .navigation
-                    .forward
-                    .last()
-                    .cloned()
-                    .map(|p| (p, Intent::Forward)),
-                Some(Shortcut::Up) => self.navigation.up().map(|p| (p, Intent::New)),
-                Some(Shortcut::Refresh) => {
-                    Some((self.navigation.current.location.clone(), Intent::Refresh))
-                }
-                None => None,
-            };
+        }).response.on_hover_text("Listing visibility options");
+        egui::ScrollArea::horizontal()
+            .id_salt(self.widget_id("footer-counts"))
+            .max_width(ui.available_width())
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| self.counts(ui));
+            });
+    }
+
+    fn navigation_command(&self, ctx: &egui::Context, editing: bool) -> Option<(PathBuf, Intent)> {
+        match navigation_shortcut(ctx, editing) {
+            Some(Shortcut::Back) => self
+                .navigation
+                .back
+                .last()
+                .cloned()
+                .map(|p| (p, Intent::Back)),
+            Some(Shortcut::Forward) => self
+                .navigation
+                .forward
+                .last()
+                .cloned()
+                .map(|p| (p, Intent::Forward)),
+            Some(Shortcut::Up) => self.navigation.up().map(|p| (p, Intent::New)),
+            Some(Shortcut::Refresh) => {
+                Some((self.navigation.current.location.clone(), Intent::Refresh))
+            }
+            None => None,
         }
-        (editing, command)
+    }
+
+    fn counts(&self, ui: &mut egui::Ui) {
+        let directory = self.navigation.visible();
+        if self.navigation.projection_fresh() {
+            ui.label(format!(
+                "{} / {} entries displayed{}",
+                directory.entries.len(),
+                directory.raw_entries.len(),
+                if matches!(directory.status, Status::Loading | Status::Failed(_)) {
+                    " (incomplete)"
+                } else {
+                    ""
+                }
+            ));
+        } else {
+            ui.label("Counts updating");
+        }
+        ui.label(format!(
+            "{} selected",
+            self.navigation.selection.paths.len()
+        ))
+        .on_hover_text(if self.navigation.rows_selectable() {
+            "Selection belongs to this tab"
+        } else {
+            "Selection paused until the destination and listing are fresh and complete"
+        });
     }
 
     fn status(&self, ui: &mut egui::Ui) {
@@ -395,16 +477,6 @@ impl Tab {
             }
         }
         if self.navigation.projection_fresh() {
-            ui.label(format!(
-                "{} / {} entries displayed{}",
-                directory.entries.len(),
-                directory.raw_entries.len(),
-                if matches!(directory.status, Status::Loading | Status::Failed(_)) {
-                    " (incomplete)"
-                } else {
-                    ""
-                }
-            ));
             if matches!(directory.status, Status::Ready)
                 && self.navigation.filter.is_empty()
                 && !directory.raw_entries.is_empty()
@@ -431,22 +503,14 @@ impl Tab {
     fn table(&mut self, ui: &mut egui::Ui, editing: bool, keyboard: bool) -> Option<Activation> {
         let mut destination = None;
         let selectable = self.navigation.rows_selectable();
-        let table_focus = ui.add(
-            egui::Label::new(format!(
-                "Entries — {} selected{}",
-                self.navigation.selection.paths.len(),
-                if selectable {
-                    ""
-                } else if self.navigation.pending_location().is_some() {
-                    " (selection paused until destination opens)"
-                } else if !self.navigation.projection_fresh() {
-                    " (selection paused while filter/sort/visibility updates)"
-                } else {
-                    " (selection paused: filtered listing is loading or incomplete; refresh to retry)"
-                }
-            ))
-            .sense(egui::Sense::click()),
+        let table_focus = ui.interact(
+            ui.available_rect_before_wrap(),
+            self.widget_id("table-focus"),
+            egui::Sense::click(),
         );
+        table_focus.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Other, selectable, "Folder entries")
+        });
         if table_focus.clicked() && selectable && keyboard {
             table_focus.request_focus();
         }
@@ -481,7 +545,7 @@ impl Tab {
             let selectable = self.navigation.rows_selectable();
             let entries = self.navigation.visible().entries.clone();
             let pitch = 24.0 + ui.spacing().item_spacing.y;
-            let available_height = ui.available_height().max(160.0);
+            let available_height = ui.available_height().max(24.0);
             let viewport_height = if self.row_viewport_height > 0.0 {
                 self.row_viewport_height.min(available_height).max(24.0)
             } else { available_height };
@@ -1517,6 +1581,49 @@ mod tests {
         let location = app.active_tab_mut().navigation.current.location.clone();
         let before = app.active_tab_mut().navigation.key();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(480.0, 280.0));
+        let output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ui| {
+                app.toolbar(ui);
+            },
+        );
+        let view = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "View" => {
+                    Some(text.pos + text.galley.size() / 2.0)
+                }
+                _ => None,
+            })
+            .expect("visibility menu must be reachable");
+        assert!(screen.contains(view));
+        output.drop_without_applying_deltas();
+        for pressed in [true, false] {
+            context
+                .run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        events: vec![
+                            egui::Event::PointerMoved(view),
+                            egui::Event::PointerButton {
+                                pos: view,
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                modifiers: egui::Modifiers::NONE,
+                            },
+                        ],
+                        ..Default::default()
+                    },
+                    |ui| {
+                        app.toolbar(ui);
+                    },
+                )
+                .drop_without_applying_deltas();
+        }
         let output = context.run_ui(
             egui::RawInput {
                 screen_rect: Some(screen),
