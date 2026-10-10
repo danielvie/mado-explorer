@@ -1,0 +1,28 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List preserved notify diagnostic tasks
+    dir: ../../..
+    cmds:
+      - task --taskfile components/directory-watch/diagnostic-notify/Taskfile.yml --list
+  run:
+    desc: Run the original owned ordinary notify probe, not the replacement service
+    dir: ../../..
+    cmds:
+      - cargo test --locked --manifest-path components/directory-watch/diagnostic-notify/Cargo.toml --target-dir target/p17-diagnostic-notify native_create_metadata_rename_delete_and_pending_drop -- --nocapture
+  test:
+    desc: Run the unchanged legacy probes, EXPECTED FAILURE for silent overflow
+    dir: ../../..
+    cmds:
+      - cargo test --locked --manifest-path components/directory-watch/diagnostic-notify/Cargo.toml --target-dir target/p17-diagnostic-notify -- --nocapture
+  check:
+    desc: Compile the preserved diagnostic without rerunning its known failure
+    dir: ../../..
+    cmds:
+      - cargo check --locked --all-targets --manifest-path components/directory-watch/diagnostic-notify/Cargo.toml --target-dir target/p17-diagnostic-notify
+  clean:
+    desc: Remove generated target/p17-diagnostic-notify only
+    dir: ../../..
+    cmds:
+      - cargo clean --manifest-path components/directory-watch/diagnostic-notify/Cargo.toml --target-dir target/p17-diagnostic-notify
