@@ -6,11 +6,13 @@ rust-version = "1.95"
 publish = false
 
 [dependencies]
+mado-core = { path = "crates/mado-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "wgpu", "accesskit"] }
-# Human-readable UTC modification timestamps; no platform timezone or filesystem calls.
-time = { version = "0.3", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+mado-core = { path = "crates/mado-core", features = ["test-support"] }
 
 [target.'cfg(windows)'.dependencies]
 mado-native-directory-watch = { path = "components/directory-watch" }

@@ -1,8 +1,7 @@
 use crate::{directory::DirectoryLoader, sorting::Sorter, tabs::Tab};
 use eframe::egui::{self, Rect, Vec2};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct PaneId(pub u64);
+pub use mado_core::ids::PaneId;
 
 pub struct Pane {
     pub id: PaneId,

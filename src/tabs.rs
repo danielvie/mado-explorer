@@ -7,8 +7,7 @@ use crate::{
 use eframe::egui;
 use std::path::PathBuf;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TabId(pub u64);
+pub use mado_core::ids::TabId;
 
 pub struct Tab {
     pub id: TabId,

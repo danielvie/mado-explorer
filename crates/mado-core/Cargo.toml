@@ -1,0 +1,16 @@
+[package]
+name = "mado-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[features]
+# Enabled only by frontend dev-dependencies for shared generated-row/projection helpers.
+test-support = []
+
+[dependencies]
+time = { version = "0.3", default-features = false, features = ["std"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell"] }
