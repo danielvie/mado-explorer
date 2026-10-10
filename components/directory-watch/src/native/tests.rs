@@ -214,6 +214,143 @@ fn queued_success_after_cancel_never_rearms_and_retirement_owns_buffers_until_dr
     assert!(!h.0.attachments[&key].request.is_some());
 }
 #[test]
+fn shared_stop_before_queued_native_success_prevents_rearm_and_observation() {
+    let fixture = Fixture::new();
+    let mut h = Harness::new(vec![Target::new(1, 1, fixture.target.clone())]);
+    h.ready();
+    h.0.shared.lock().port = Some(h.0.port.clone());
+    let service = Service {
+        shared: h.0.shared.clone(),
+        thread: None,
+    };
+    let key = path::admitted_name(&fixture.target).unwrap();
+    let id = h.0.attachments[&key].request.unwrap();
+    let address = h.0.requests[&id].storage.get() as usize;
+    let reads = h.0.read_submissions;
+    let observations = h.0.observations;
+    fs::write(fixture.target.join("queued-before-public-stop"), b"owned").unwrap();
+    // Query only our port's queue depth. No packet removal or fake completion. IOCP
+    // OVERLAPPED status is not updated for GetOverlappedResult until its packet dequeues.
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryIoCompletion(
+            port: HANDLE,
+            information_class: u32,
+            information: *mut i32,
+            length: u32,
+            returned: *mut u32,
+        ) -> i32;
+    }
+    let until = Instant::now() + Duration::from_secs(5);
+    loop {
+        let mut depth = 0;
+        let mut returned = 0;
+        // SAFETY: IoCompletionBasicInformation is one LONG queue depth. This owns the
+        // live IOCP handle; both output buffers are writable, correctly sized/aligned.
+        let status = unsafe {
+            NtQueryIoCompletion(
+                h.0.port.0.as_raw_handle(),
+                0,
+                &mut depth,
+                size_of::<i32>() as u32,
+                &mut returned,
+            )
+        };
+        assert_eq!(status, 0);
+        assert_eq!(returned, size_of::<i32>() as u32);
+        if depth > 0 {
+            break;
+        }
+        assert!(Instant::now() < until, "native success did not queue");
+        thread::sleep(Duration::from_millis(1));
+    }
+    service.request_stop(); // Wake is behind the already queued success, no manual retirement.
+    assert!(h.0.requests[&id].pending && !h.0.requests[&id].retiring);
+    assert_eq!(h.0.requests[&id].storage.get() as usize, address);
+    assert!(!service.stopped());
+    h.0.dequeue(1000);
+    let (completed_id, code, bytes) = h.0.last_native_completion.unwrap();
+    assert_eq!((completed_id, code), (id, 0));
+    assert!(bytes > 0);
+    assert_eq!(
+        h.0.read_submissions, reads,
+        "stop must prevent native rearm"
+    );
+    assert_eq!(
+        h.0.observations, observations,
+        "stop must prevent path revalidation"
+    );
+    assert!(
+        !h.0.requests.contains_key(&id),
+        "only the drained success may be freed"
+    );
+    assert!(h.0.requests.values().all(|r| r.pending && r.retiring));
+    assert!(h.0.current.is_empty() && h.0.attachments.is_empty());
+    assert!(h.0.shared.lock().driver_errors.is_empty());
+    assert!(
+        !service.stopped(),
+        "cleanup acknowledgement cannot be early"
+    );
+    h.0.cleanup();
+    assert!(h.0.requests.is_empty());
+    assert_eq!(
+        (h.0.read_submissions, h.0.observations),
+        (reads, observations)
+    );
+    fixture.sentinel();
+}
+#[test]
+fn shared_stop_mid_registration_prevents_subsequent_admission_and_observation() {
+    let fixture = Fixture::new();
+    let mut h = Harness::new(vec![Target::new(1, 1, fixture.target.clone())]);
+    h.0.shared.lock().port = Some(h.0.port.clone());
+    h.0.stop_after_initial_read = true;
+    h.0.controls();
+    assert!(h.0.shared.stop.load(Ordering::Acquire));
+    assert_eq!(
+        h.0.read_submissions, 1,
+        "registration must stop after the initiated read"
+    );
+    assert_eq!(
+        h.0.observations, 1,
+        "no subsequent provider observation after stop"
+    );
+    assert_eq!(
+        h.0.requests.len(),
+        1,
+        "submitted storage stays owned until drain"
+    );
+    let request = h.0.requests.values().next().unwrap();
+    assert!(request.pending && request.retiring);
+    let address = request.storage.get() as usize;
+    assert!(h.0.current.is_empty() && h.0.attachments.is_empty());
+    assert!(h.0.shared.lock().driver_errors.is_empty());
+    assert!(
+        h.0.shared
+            .lock()
+            .reports
+            .values()
+            .all(|r| { r.directory_error.is_none() && r.parent_error.is_none() }),
+        "intentional stop must not publish registration failure"
+    );
+    assert!(!h.0.shared.stopped.load(Ordering::Acquire));
+    h.0.controls();
+    h.0.revalidate(true);
+    assert_eq!(
+        h.0.requests.values().next().unwrap().storage.get() as usize,
+        address
+    );
+    assert_eq!((h.0.read_submissions, h.0.observations), (1, 1));
+    h.0.cleanup();
+    assert!(h.0.requests.is_empty());
+    assert!(
+        h.0.last_native_completion.is_some(),
+        "cleanup must drain native acknowledgement"
+    );
+    assert_eq!((h.0.read_submissions, h.0.observations), (1, 1));
+    fixture.sentinel();
+}
+#[test]
 fn repeated_controls_queue_only_one_native_wake_packet() {
     let fixture = Fixture::new();
     let mut h = Harness::new(vec![Target::new(1, 1, fixture.target.clone())]);

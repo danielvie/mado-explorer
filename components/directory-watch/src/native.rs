@@ -151,7 +151,10 @@ impl Request {
 }
 
 /// Opens only a losslessly admitted filesystem namespace. No enumeration/content reads.
-fn observe(key: &[u16]) -> Result<(OwnedHandle, Identity), Failure> {
+fn observe(key: &[u16], stop: &AtomicBool) -> Result<Option<(OwnedHandle, Identity)>, Failure> {
+    if stop.load(Ordering::Acquire) {
+        return Ok(None);
+    }
     // SAFETY: key is terminated and validated before I/O. Share delete is needed for root lifecycle.
     let raw = unsafe {
         CreateFileW(
@@ -168,6 +171,9 @@ fn observe(key: &[u16]) -> Result<(OwnedHandle, Identity), Failure> {
         return Err(last("CreateFileW"));
     }
     let handle = unsafe { OwnedHandle::from_raw_handle(raw) };
+    if stop.load(Ordering::Acquire) {
+        return Ok(None);
+    }
     if unsafe { GetFileType(raw) } != FILE_TYPE_DISK {
         return Err(Failure::Unsupported("not a disk filesystem directory"));
     }
@@ -175,6 +181,9 @@ fn observe(key: &[u16]) -> Result<(OwnedHandle, Identity), Failure> {
     let mut attr = MaybeUninit::<FILE_ATTRIBUTE_TAG_INFO>::uninit();
     // SAFETY: typed aligned buffers have exact sizes; assume_init only after successful calls.
     unsafe {
+        if stop.load(Ordering::Acquire) {
+            return Ok(None);
+        }
         if GetFileInformationByHandleEx(
             raw,
             FileIdInfo,
@@ -183,6 +192,9 @@ fn observe(key: &[u16]) -> Result<(OwnedHandle, Identity), Failure> {
         ) == 0
         {
             return Err(last("GetFileInformationByHandleEx identity"));
+        }
+        if stop.load(Ordering::Acquire) {
+            return Ok(None);
         }
         if GetFileInformationByHandleEx(
             raw,
@@ -203,13 +215,13 @@ fn observe(key: &[u16]) -> Result<(OwnedHandle, Identity), Failure> {
         if id.FileId.Identifier == [0; 16] {
             return Err(Failure::Unsupported("empty native directory identity"));
         }
-        Ok((
+        Ok(Some((
             handle,
             Identity {
                 volume: id.VolumeSerialNumber,
                 id: id.FileId.Identifier,
             },
-        ))
+        )))
     }
 }
 #[derive(Default)]
@@ -263,6 +275,12 @@ struct Driver {
     faults: BTreeMap<&'static str, u32>,
     #[cfg(test)]
     last_native_completion: Option<(usize, u32, u32)>,
+    #[cfg(test)]
+    observations: usize,
+    #[cfg(test)]
+    read_submissions: usize,
+    #[cfg(test)]
+    stop_after_initial_read: bool,
 }
 impl Driver {
     fn new(shared: Arc<Shared>, port: Arc<Port>) -> Self {
@@ -278,6 +296,12 @@ impl Driver {
             faults: BTreeMap::new(),
             #[cfg(test)]
             last_native_completion: None,
+            #[cfg(test)]
+            observations: 0,
+            #[cfg(test)]
+            read_submissions: 0,
+            #[cfg(test)]
+            stop_after_initial_read: false,
         }
     }
     fn retire(&mut self, id: usize) {
@@ -290,10 +314,32 @@ impl Driver {
             }
         }
     }
+    fn stopping(&mut self) -> bool {
+        if !self.shared.stop.load(Ordering::Acquire) {
+            return false;
+        }
+        // Observation is cooperative, not an OS-call deadline. Once observed, discard
+        // routing and retire, but keep every submitted allocation until its real drain.
+        self.current.clear();
+        self.attachments.clear();
+        let ids: Vec<usize> = self
+            .requests
+            .iter()
+            .filter(|(_, r)| !r.retiring)
+            .map(|(&id, _)| id)
+            .collect();
+        for id in ids {
+            self.retire(id);
+        }
+        true
+    }
     fn paths(current: &Current) -> impl Iterator<Item = &Result<Key, Failure>> {
         std::iter::once(&current.directory).chain(current.parent.iter())
     }
     fn controls(&mut self) {
+        if self.stopping() {
+            return;
+        }
         let (replacement, retries) = {
             let mut m = self.shared.lock();
             let replacement = if m.changed {
@@ -357,6 +403,9 @@ impl Driver {
                 self.attachments.entry(key).or_default();
             }
             self.revalidate(false);
+            if self.stopping() {
+                return;
+            }
             self.publish_all(true);
         }
         if !retries.is_empty() {
@@ -374,6 +423,9 @@ impl Driver {
                 }
             }
             self.revalidate(true);
+            if self.stopping() {
+                return;
+            }
             self.publish_all(true);
         }
         let code = self.shared.wake_error.swap(0, Ordering::AcqRel);
@@ -384,20 +436,46 @@ impl Driver {
             });
         }
     }
-    fn submit(&mut self, id: usize, action: &'static str) -> Result<(), Failure> {
+    fn submit(&mut self, id: usize, action: &'static str) -> Result<bool, Failure> {
+        if self.stopping() {
+            return Ok(false);
+        }
         #[cfg(test)]
         if let Some(code) = self.faults.remove(action) {
             return Err(Failure::Native { action, code });
         }
         let _ = action;
-        self.requests.get_mut(&id).unwrap().submit()
+        let result = self.requests.get_mut(&id).unwrap().submit();
+        #[cfg(test)]
+        if result.is_ok() {
+            self.read_submissions += 1;
+            // Stop immediately after the first real registration read, before the batch continues.
+            if action == "initial read" && std::mem::take(&mut self.stop_after_initial_read) {
+                Service {
+                    shared: self.shared.clone(),
+                    thread: None,
+                }
+                .request_stop();
+            }
+        }
+        result.map(|()| true)
+    }
+    fn observe(&mut self, key: &[u16]) -> Result<Option<(OwnedHandle, Identity)>, Failure> {
+        #[cfg(test)]
+        {
+            self.observations += 1;
+        }
+        observe(key, &self.shared.stop)
     }
     fn attach(
         &mut self,
         key: Key,
         handle: OwnedHandle,
         identity: Identity,
-    ) -> Result<usize, Failure> {
+    ) -> Result<Option<usize>, Failure> {
+        if self.stopping() {
+            return Ok(None);
+        }
         if self.requests.len() >= MAX_REQUESTS {
             return Err(Failure::Capacity);
         }
@@ -413,15 +491,21 @@ impl Driver {
         }
         self.requests
             .insert(id, Box::new(Request::new(handle, identity, key)));
-        if let Err(error) = self.submit(id, "initial read") {
-            self.requests.remove(&id);
-            return Err(error);
+        match self.submit(id, "initial read") {
+            Ok(true) => Ok(Some(id)),
+            Ok(false) => Ok(None),
+            Err(error) => {
+                self.requests.remove(&id);
+                Err(error)
+            }
         }
-        Ok(id)
     }
     fn revalidate(&mut self, retry_capacity: bool) {
         let keys: Vec<Key> = self.attachments.keys().cloned().collect();
         for key in keys {
+            if self.stopping() {
+                return;
+            }
             let a = &self.attachments[&key];
             // Fatal registration/rearm/unknown errors are sticky until an explicit retry.
             if a.error
@@ -434,7 +518,17 @@ impl Driver {
                 self.attachments.get_mut(&key).unwrap().error = Some(Failure::Capacity);
                 continue;
             }
-            let observed = observe(&key);
+            let observed = match self.observe(&key) {
+                Ok(Some(value)) => Ok(value),
+                Ok(None) => {
+                    self.stopping();
+                    return;
+                }
+                Err(error) => Err(error),
+            };
+            if self.stopping() {
+                return;
+            }
             let previous = self.attachments[&key].request;
             if let (Ok((_, identity)), Some(id)) = (&observed, previous) {
                 if self.requests[&id].identity == *identity {
@@ -447,10 +541,13 @@ impl Driver {
             }
             let result =
                 observed.and_then(|(handle, identity)| self.attach(key.clone(), handle, identity));
+            if self.stopping() {
+                return;
+            }
             let a = self.attachments.get_mut(&key).unwrap();
             match result {
                 Ok(id) => {
-                    a.request = Some(id);
+                    a.request = id;
                     a.error = None;
                 }
                 Err(e) => {
@@ -518,6 +615,7 @@ impl Driver {
         }
     }
     fn completion(&mut self, id: usize, overlapped: *mut OVERLAPPED, code: u32, bytes: u32) {
+        self.stopping();
         let Some(request) = self.requests.get_mut(&id) else {
             self.shared
                 .failure(Failure::Unsupported("unknown IOCP request key"));
@@ -548,7 +646,11 @@ impl Driver {
                     }
                 }
                 // Keep successful dirty/overflow data even if this separate rearm fails.
-                self.submit(id, "rearm").err()
+                match self.submit(id, "rearm") {
+                    Ok(true) => None,
+                    Ok(false) => return,
+                    Err(error) => Some(error),
+                }
             }
             Completion::Failed(code) => Some(Failure::Native {
                 action: "notification completion",
@@ -561,13 +663,16 @@ impl Driver {
             // Close the drained request first, then confirm the native name is missing.
             // Never reinterpret initial/rearm errors or arbitrary unknown completion codes.
             self.retire(id);
+            if self.stopping() {
+                return;
+            }
             if error
                 == (Failure::Native {
                     action: "notification completion",
                     code: ERROR_ACCESS_DENIED,
                 })
             {
-                if let Err(Failure::Native { code, .. }) = observe(&key) {
+                if let Err(Failure::Native { code, .. }) = self.observe(&key) {
                     if matches!(
                         code,
                         ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND | ERROR_DELETE_PENDING
@@ -578,6 +683,9 @@ impl Driver {
                         };
                     }
                 }
+            }
+            if self.stopping() {
+                return;
             }
             if let Some(a) = self.attachments.get_mut(&key) {
                 a.request = None;
