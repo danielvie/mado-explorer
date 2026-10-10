@@ -1,2 +1,5 @@
 # Keep generator hashes stable across Windows autocrlf checkouts.
 * text eol=lf
+# Preserve exact native capture bytes and provenance hashes.
+evidence/*.png -text
+evidence/*.json -text whitespace=cr-at-eol
