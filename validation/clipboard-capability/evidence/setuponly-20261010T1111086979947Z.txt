@@ -1,0 +1,25 @@
+utc=2026-10-10T11:11:08.7072824Z
+host=DANIEL-PC os=Microsoft Windows NT 10.0.26200.0
+checkout_head=251f7019cdd050277be360316bf2819e6bbc8126 backend_tree=08f208b4aec1763013af2d65344ef94837ec27a9
+parameters=--setup-only sourceSHA256=E06F9BE154E3129C993014F463F83FDA6E13BE196A2E30C72E29220A0B41D207 binarySHA256=9649E6D34BCEC53FD4344096842106FAE99F012608A09C438FEED6F0E4FBA92C
+Cargo.toml=2371AB9DFE8F1D20459C6009A45F9928660B59A79404BEA798847AD20A911FB2
+Cargo.lock=7E7E82664B0C611217B2ADA8EEE74DF52A3EC870A8768E3DFA65D880D4154853
+src/main.rs=3489A855D89A6C5142B82030FFA234ED13F8DBEB1EF17208EF02D5C58DEF51D9
+src/native.rs=6A784174D28E2EA92E6B363B9C5D0B82DFB68E44ACC2A6C2066808F66AB3DCBA
+run.ps1=A21FD143AF35D6661D59475D841FEF88CFA5B7E897C0BD33BE098FD931339B3F
+Taskfile.yml=3E38CFCD270957DAEA473C7FD11C05B0DAFD20D0A680144E93D78B868D9C5602
+mode=SetupOnly own_pid=59128 station_access=0x2e desktop_access=0x83
+stage=OpenProcessToken/TOKEN_QUERY raw=0x1 GetLastError=0
+stage=GetTokenInformation/TokenUser raw=0x1 GetLastError=0
+stage=CloseHandle/own-token raw=0x1 GetLastError=0
+stage=ConvertSidToStringSidW/own-user raw=0x1 GetLastError=0
+own_identity_sid=S-1-5-21-2795475296-842809559-1368082854-1001 token_access=0x8
+stage=ConvertStringSecurityDescriptorToSecurityDescriptorW raw=0x1 GetLastError=0
+station_name_argument=NULL station_flags=0x1 station_access=0x2e protected_dacl=current_user+SYSTEM
+stage=CreateWindowStationW raw=0x0 GetLastError=183
+outcome=blocked failed_stage=CreateWindowStationW/new-only
+stage=cleanup outcome=complete
+backend_write_calls=0 backend_read_calls=0
+clipboard_calls=0
+outcome=blocked error=probe failed
+process_exit=1
