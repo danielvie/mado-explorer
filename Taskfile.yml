@@ -29,6 +29,12 @@ tasks:
       - task test:clipboard
       - task test:create
       - task test:watch
+      - task test:clipboard-probe
+
+  test:clipboard-probe:
+    desc: Test blocked probe privacy guards and owned fixture retention only, no station or clipboard calls
+    cmds:
+      - cargo test --locked --offline --manifest-path validation/clipboard-capability/Cargo.toml --target-dir target/p22/build
 
   test:watch:
     desc: Test reviewed native notification service with owned fixtures, excluding known-failing legacy notify diagnostic
