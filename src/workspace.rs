@@ -55,6 +55,11 @@ impl Explorer {
     }
 
     pub(super) fn poll_directory(&mut self) -> bool {
+        #[cfg(windows)]
+        {
+            self.sync_watch();
+            self.watch.drain();
+        }
         let more = self.loader.drain(|response| {
             if let Some(tab) = self
                 .panes
@@ -86,7 +91,87 @@ impl Explorer {
                 tab.navigation.apply_sorted(sorted);
             }
         }
+        #[cfg(windows)]
+        self.reconcile_watch();
         more
+    }
+
+    #[cfg(windows)]
+    pub(super) fn watch_context(&self, pane: usize) -> watch_adapter::Context {
+        let p = &self.panes[pane];
+        let tab = &p.tabs[p.active];
+        watch_adapter::Context {
+            pane: p.id,
+            tab: tab.id,
+            path: tab.navigation.current.location.clone(),
+        }
+    }
+
+    #[cfg(windows)]
+    pub(super) fn sync_watch(&mut self) {
+        // Only active committed locations. A loader generation is NOT a watch
+        // lifetime. Bound the snapshot before allocating adapter records.
+        if self.watch.enabled() {
+            let contexts = (0..self.panes.len())
+                .take(mado_native_directory_watch::MAX_TARGETS + 1)
+                .map(|pane| self.watch_context(pane))
+                .collect();
+            self.watch.sync(contexts);
+        }
+    }
+
+    #[cfg(windows)]
+    pub(super) fn reconcile_watch(&mut self) {
+        if !self.watch.enabled() {
+            return;
+        }
+        // Commit may have changed the native location. Drop obsolete A reports
+        // before considering dirty work. Failed B retains A and can reconcile now.
+        self.sync_watch();
+        for pane in 0..self.panes.len() {
+            let context = self.watch_context(pane);
+            let tab = &self.panes[pane].tabs[self.panes[pane].active];
+            if tab.navigation.pending_location().is_some()
+                || matches!(tab.navigation.current.status, Status::Loading)
+            {
+                continue;
+            }
+            let Some(binding) = self
+                .watch
+                .bindings
+                .iter_mut()
+                .find(|b| b.context == context)
+            else {
+                continue;
+            };
+            if !binding.dirty {
+                continue;
+            }
+            binding.dirty = false;
+            // Reuse the activation refresh path to retain filter/sort/selection,
+            // editor drafts and scroll. Keep failed-navigation diagnostics too.
+            let active = self.panes[pane].active;
+            let error = self.panes[pane].tabs[active].navigation.error.take();
+            self.refresh_tab_in(pane);
+            self.panes[pane].tabs[active].navigation.error = error;
+        }
+    }
+
+    #[cfg(windows)]
+    fn watch_status_in(&mut self, ui: &mut egui::Ui, pane: usize) {
+        if !self.watch.enabled() {
+            return;
+        }
+        let context = self.watch_context(pane);
+        ui.colored_label(
+            egui::Color32::from_rgb(255, 180, 130),
+            self.watch.message(&context),
+        );
+        if ui.button("Retry notifications").clicked() {
+            self.sync_watch();
+            self.watch.retry(&context);
+            ui.ctx().request_repaint();
+        }
     }
 
     pub(super) fn activate_tab(&mut self, index: usize) {
@@ -391,9 +476,13 @@ impl Explorer {
     }
 
     fn footer_in(&mut self, ui: &mut egui::Ui, pane: usize) -> bool {
+        #[cfg(windows)]
+        let watch_enabled = self.watch.enabled();
+        #[cfg(not(windows))]
+        let watch_enabled = false;
         let p = &mut self.panes[pane];
         let tab = &mut p.tabs[p.active];
-        ui.push_id(tab.id, |ui| tab.footer(ui)).inner
+        ui.push_id(tab.id, |ui| tab.footer(ui, watch_enabled)).inner
     }
 
     fn toolbar_in(&mut self, ui: &mut egui::Ui, pane: usize, footer_editing: bool) -> bool {
@@ -647,6 +736,8 @@ impl Explorer {
                         let p = &self.panes[pane];
                         let tab = &p.tabs[p.active];
                         ui.push_id(tab.id, |ui| tab.status(ui));
+                        #[cfg(windows)]
+                        self.watch_status_in(ui, pane);
                         let table_rect = egui::Rect::from_min_size(
                             ui.cursor().min,
                             egui::vec2(ui.available_width(), ui.available_height().max(100.0)),

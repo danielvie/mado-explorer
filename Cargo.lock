@@ -1485,9 +1485,17 @@ name = "mado-explorer"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "mado-native-directory-watch",
  "serde",
  "serde_json",
  "time",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mado-native-directory-watch"
+version = "0.1.0"
+dependencies = [
  "windows-sys 0.61.2",
 ]
 
