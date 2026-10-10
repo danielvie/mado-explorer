@@ -1,5 +1,11 @@
 # Implementation progress
 
+## Autonomous continuation S015
+
+- New human instruction relayed 2026-10-10: continue all remaining approved implementation/integration/review/testing/verification autonomously. Visual approval is deferred until the user returns, never marked passed and not a blocker to unrelated implementation. Do not stop merely at visual preparation/approval. Preserve five shared writer/three fresh reviewer/one serial integrator ceilings and all source/history/safety/probe permissions; this does not itself approve replacing personal clipboard or destructive personal-folder checks.
+- Recovery inspection: accepted HEAD86e2390, tracked main clean; two historical untracked artifacts preserved. V001 preparation dfcd521 is independently reviewed without blocker, ready for serial promotion/setup validation; actual visual comparison and user acceptance remain pending. No live worker/reviewer in current intercom roster. Current root UI remains S011 browsing/workspace persistence; accepted standalone previews/operation controls/backend helpers still need production adapters/executors.
+- Continuation priority: promote V001 prep without treating visual acceptance as done; connect usable application behavior rather than add more disconnected controls. Prepare next exact ready commissions against accepted main, classify recorded native image/watcher/rename infrastructure constraints explicitly and continue unaffected work. Native/manual/permission checks remain distinct; unavailable checks never pass. Keep current evidence/report recoverable, bounded supervisor context.
+
 ## Current state
 
 - Baseline: S001-S010 accepted; captured-target finder, tabs and split panes preserve native contexts and bounded routing.
