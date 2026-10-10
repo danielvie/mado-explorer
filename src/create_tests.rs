@@ -5,7 +5,7 @@ use create_adapter::{BeforeCallGate, CreateAdapter};
 use mado_operation_drawer::{Kind, OperationId, Outcome, State};
 use std::{
     fs,
-    sync::atomic::Ordering,
+    sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -18,13 +18,15 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
-            "mado-s019-{}-{}",
+            "mado-s019-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).unwrap();
         let parent = root.join("owned-parent");
@@ -75,6 +77,31 @@ impl Drop for Fixture {
         fs::remove_dir_all(&self.root).unwrap();
     }
 }
+#[test]
+fn s019_fixture_parallel_names_are_unique() {
+    let barrier = std::sync::Barrier::new(16);
+    let fixtures = thread::scope(|scope| {
+        let workers: Vec<_> = (0..16)
+            .map(|_| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    Fixture::new()
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let mut suffixes = std::collections::HashSet::new();
+    for fixture in &fixtures {
+        let name = fixture.root.file_name().unwrap().to_str().unwrap();
+        assert_eq!(name.split('-').count(), 5);
+        assert!(suffixes.insert(name.rsplit('-').next().unwrap().parse::<u64>().unwrap()));
+    }
+}
+
 fn tick(app: &mut Explorer) {
     eframe::App::logic(
         app,

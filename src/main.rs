@@ -799,30 +799,17 @@ fn selection_shortcuts(
     })
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Activation {
-    Folder(PathBuf),
-    File(PathBuf),
-}
+use mado_core::navigation::Activation;
 
 fn capture_activation(
     navigation: &Navigation,
     path: &std::path::Path,
     editing: bool,
 ) -> Option<Activation> {
-    if editing || !navigation.rows_selectable() {
+    if editing {
         return None;
     }
-    let entry = navigation
-        .current
-        .entries
-        .iter()
-        .find(|entry| entry.path == path)?;
-    match entry.kind {
-        EntryKind::Folder => Some(Activation::Folder(entry.path.clone())),
-        EntryKind::File => Some(Activation::File(entry.path.clone())),
-        _ => None,
-    }
+    mado_core::navigation::capture_activation(navigation, path)
 }
 
 fn active_activation(navigation: &Navigation, editing: bool) -> Option<Activation> {
