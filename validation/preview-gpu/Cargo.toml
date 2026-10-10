@@ -1,0 +1,14 @@
+[package]
+name = "mado-preview-gpu-probe"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dependencies]
+mado-pdf-preview-service = { path = "../../components/pdf-preview-service" }
+epaint = { version = "=0.36.2", default-features = false }
+egui-wgpu = { version = "=0.36.2", default-features = false }
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "dx12", "wgsl"] }
+
+[workspace]

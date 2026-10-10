@@ -1,0 +1,32 @@
+Frozen baseline
+3ff79a5b894cf51aec7b15d9819255b7871cc8a9
+rustc 1.95.0 (59807616e 2026-04-14)
+cargo 1.95.0 (f2d3ce0bd 2026-03-21)
+3.50.0+49932d0
+Dependency-version check against unchanged accepted root and budget-service locks
+Root-only preliminary comparator exit1: libloading0.9.0 belongs to accepted budget-service, not a root upgrade
+Common package versions absent from combined accepted locks: []
+Probe direct pins [
+  [ 'egui-wgpu', '0.36.2' ],
+  [ 'epaint', '0.36.2' ],
+  [ 'wgpu', '30.0.1' ]
+]
+task: [check] cargo fmt --manifest-path Cargo.toml -- --check
+task: [check] cargo check --locked --offline --manifest-path Cargo.toml --target-dir ../../target/p23/build --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+task: [test] cargo test --locked --offline --manifest-path Cargo.toml --target-dir ../../target/p23/build --lib
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src\lib.rs (../../target/p23/build\debug\deps\mado_preview_gpu_probe-a04eca9ce8829101.exe)
+
+running 4 tests
+test tests::completion_alone_or_invalid_epoch_is_not_ready ... ok
+test tests::current_and_retiring_payloads_share_one_limit ... ok
+test tests::layout_refuses_before_allocation_and_charges_padding ... ok
+test tests::same_cpu_counter_holds_source_staging_readback_and_external_capacity ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+task: [clean] cargo clean --manifest-path Cargo.toml --target-dir ../../target/p23/build --profile dev
+task: [clean] cargo clean --manifest-path Cargo.toml --target-dir ../../target/p23/build --profile release
+task: [clean] cargo clean --manifest-path Cargo.toml --target-dir ../../target/p23/build --doc
+CHECK_EXIT=0

@@ -1,0 +1,31 @@
+version: '3'
+
+# All paths resolve from this standalone probe's directory.
+tasks:
+  default:
+    desc: List probe tasks
+    cmds:
+      - task --list
+  test:
+    desc: Run pure layout/accounting/Ready checks only, no GPU
+    cmds:
+      - cargo test --locked --offline --manifest-path Cargo.toml --target-dir ../../target/p23/build --lib
+  check:
+    desc: Format check and compile all probe targets, no GPU execution
+    cmds:
+      - cargo fmt --manifest-path Cargo.toml -- --check
+      - cargo check --locked --offline --manifest-path Cargo.toml --target-dir ../../target/p23/build --all-targets
+  run:
+    desc: Opt in to own generated-pixel DX12 native GPU checks, no app/window/files/clipboard
+    cmds:
+      - cargo run --locked --offline --manifest-path Cargo.toml --target-dir ../../target/p23/build -- --native-owned
+  native:
+    desc: Explicit alias for the opt-in native GPU probe
+    cmds:
+      - task: run
+  clean:
+    desc: Remove probe build profiles/docs only, never retained evidence or fixtures
+    cmds:
+      - cargo clean --manifest-path Cargo.toml --target-dir ../../target/p23/build --profile dev
+      - cargo clean --manifest-path Cargo.toml --target-dir ../../target/p23/build --profile release
+      - cargo clean --manifest-path Cargo.toml --target-dir ../../target/p23/build --doc
