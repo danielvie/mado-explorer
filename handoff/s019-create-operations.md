@@ -76,3 +76,48 @@ No complete release criterion is marked Verified here. Creation-route portions o
 Production capability remains FALSE with no feature/env/CLI/settings/UI override. Both explicit production New commands honestly explain unavailability and change no files. Private `cfg(test)` enablement asserts generated owned descendants and is used only by these fixtures. It grants no personal-folder authority. Watch, clipboard and previews remain disabled as before.
 
 P18's initial local-NTFS-only provider guard remains a partial support ceiling, not a permanent product-scope deferral. Other required providers, real ACL/permission and locking UI outcomes, successfully converted ancestors/privileged cases, full native capability evidence, manual creation/editor/drawer interaction, DPI/Narrator and release safety checks remain pending. Rename, transfer conflicts/copy/move, trash/delete, their chunk cancellation/partial recovery and operation persistence/crash recovery are not implemented by S019. Fresh independent filesystem/UI/lifecycle review and supervisor integration validation are required before acceptance; production mutation enablement needs an explicit separate decision/evidence.
+
+## S019-R01 selection-state correction
+
+Fresh correction started from clean `a39b4b37a502230334f7ad7cf092c1a6e7329877` on the same checkout and branch. Original candidate remains preserved at `archive/s019-selection-blocked`. Only changed paths are `src/create_ui.rs`, `src/create_tests.rs` and this handoff. Supervisor owns main, PROGRESS, review and integration. Final correction SHA is supplied in the worker receipt and recoverable with `git rev-parse HEAD`.
+
+UI reviewer `8bf4cd5f` reported two P2 findings, independently confirmed by the supervisor:
+
+1. `rows_selectable()` intentionally permits fresh empty-filter Loading/Failed projections for ordinary browsing. Creation reconciliation nevertheless consumed its marker on such rows, either selecting prematurely or permanently treating an incomplete absence as final. The correction adds an explicit `Status::Ready` requirement alongside the unchanged pending-navigation, freshness, TabId, native path and generation guards. Ordinary browsing selection is unchanged.
+2. Deferred `Some(0)` checked TabId/path but not mutable `origin_generation`. Explicit New navigation to A/child/.. could finish normalized to A at g2 after creation completed against committed A/g1. Dirty refresh then incorrectly authorized selection at g3. The correction rechecks mutable eligibility before the dirty refresh can assign its marker. Stale selection is disarmed; affected-tab refresh still runs. Immutable captured Target and the existing same-context refresh hook are unchanged.
+
+### Retained red-to-green checks
+
+Both new tests were added and formatted before any production change. In the owned checkout:
+
+```text
+cargo fmt
+cargo test --locked --offline s019_r01 -- --test-threads=1
+```
+
+Against unchanged a39 production guards, this command exited 101 with **0 passed, 2 failed, 158 filtered out**:
+
+- `s019_r01_progressive_fresh_rows_do_not_consume_creation_selection`, `src/create_tests.rs:282`, failed `fresh Loading projection must not consume the creation marker, even with the created path present`. The first fresh empty Loading projection had already set `selected` true.
+- `s019_r01_normalized_new_navigation_rejects_deferred_old_generation_selection`, `src/create_tests.rs:416`, failed `normalized explicit New navigation must not authorize old-context auto-selection`. Actual selection ended in `normalized-created.txt`; expected selection remained `sentinel-a` in the same generated A fixture.
+
+The original failing assertions remain. One production correction attempt added only the two guard conditions above. Final coherent validation commands:
+
+```text
+cargo fmt --check
+cargo check --all-targets --locked --offline
+cargo test --locked --offline s019_r01 -- --test-threads=1
+cargo test --locked --offline create_tests -- --test-threads=1
+cargo test --locked --offline -- --test-threads=1
+git diff --check
+```
+
+All pass. New group **2 passed**; full creation group **23 passed, zero failed or ignored**, including all unchanged original 21 checks. One full root run **159 passed, zero failed, one existing optional installed-font probe ignored** covers affected navigation, tabs, watch and settings/input checks. Compile is incremental and warning-free. Whitespace check passes; existing Git LF-to-CRLF warnings are not failures. Staged whitespace and clean exact-owned commit checks are recorded in the final receipt.
+
+### Actual behavior and controlled timing
+
+- Progressive regression uses actual App preparation, worker, P18 create, successful drawer completion and operation-scheduled refresh. It retains actual background-loader entries and success response, then controls delivery of empty, partial-without-created-path and path-containing snapshots. The unchanged real projection function supplies a fresh key for each controlled stage. Each Loading stage leaves the marker unconsumed and selection empty. Ready with a stale projection still waits. Ready with its fresh projection selects the exact created native path once; later sentinel selection survives another reconciliation. This is deterministic progression timing, not a slow-provider measurement or fake create backend.
+- Normalization regression uses actual pinned P18 creation with the existing before-call gate. Explicit New navigation is pending before successful creation completion. Only alias loader timing/completion is controlled: existing actual A rows and a normalized A success response exercise the unchanged `Navigation::apply` same-location alias branch. The ordinary dirty refresh assigns g3, and actual background loader/sorter rows contain the created path. Sentinel selection survives; no authorized marker remains. Mutable eligibility and immutable captured Target both remain at original g1. Existing pending-B failure selection, explicit F5 staleness and queued `fifo-15` selection checks remain green.
+
+No FS backend, worker, adapter, lifetime/pin/cache/thread/queue, navigation, loader, provider, input, settings, Cargo, Taskfile or component source changed. Production capability remains FALSE, with only existing private owned-fixture `cfg(test)` enablement. No personal folders, clipboard, network, elevation, native window/probes, Clippy, screenshots, benchmarks or component reruns were used.
+
+Original S019 **21/157** evidence and supervisor original-a39 native save/close/restart smoke remain historical original-candidate evidence. They are not relabeled with corrected counts. Corrected-head native smoke and fresh corrected UI/state review remain supervisor-owned and pending. Existing optional font/native/manual/accessibility/provider limits and all preserved original failures above remain unchanged. This correction is frozen for review, not self-approved or production-enabled; no full acceptance criterion is claimed.

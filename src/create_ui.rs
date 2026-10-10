@@ -67,6 +67,7 @@ impl Explorer {
                 && !self.panes.iter().flat_map(|p| &p.tabs).any(|t| {
                     t.id == payload.target.tab
                         && t.navigation.current.location == payload.target.path
+                        && t.navigation.current.generation == payload.origin_generation
                 })
             {
                 payload.selected = true;
@@ -128,7 +129,10 @@ impl Explorer {
                 payload.selected = true;
                 continue;
             }
-            if tab.navigation.pending_location().is_some() || !tab.navigation.rows_selectable() {
+            if tab.navigation.pending_location().is_some()
+                || !matches!(tab.navigation.current.status, Status::Ready)
+                || !tab.navigation.rows_selectable()
+            {
                 continue;
             }
             let path = payload.request.destination().unwrap();

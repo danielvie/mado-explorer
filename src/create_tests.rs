@@ -214,6 +214,223 @@ fn s019_actual_file_folder_collision_and_fresh_selection_without_watcher() {
 }
 
 #[test]
+fn s019_r01_progressive_fresh_rows_do_not_consume_creation_selection() {
+    let f = Fixture::new();
+    let mut app = f.app(None);
+    let path = f.a.join("progressive-created.txt");
+    open(&mut app, Kind::CreateFile, "progressive-created.txt");
+    let id = commit(&mut app);
+    // Poll actual P18 completion and schedule its refresh, without draining directory responses.
+    let until = Instant::now() + Duration::from_secs(10);
+    while outcome(&app, id).is_none() {
+        app.create_logic();
+        assert!(Instant::now() < until);
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(outcome(&app, id), Some(State::Stopped(Outcome::Completed)));
+    assert_eq!(fs::read(&path).unwrap(), b"");
+    let generation = app.active_tab_mut().navigation.current.generation;
+    assert_eq!(
+        app.create.payloads[0].selection_generation,
+        Some(generation)
+    );
+    assert!(matches!(
+        app.active_tab_mut().navigation.current.status,
+        Status::Loading
+    ));
+    assert!(app.create.dirty.is_empty());
+
+    // Retain actual loader rows/completion; control only their progressive delivery and projection timing.
+    let mut rows = None;
+    let mut finished = None;
+    while finished.is_none() {
+        app.loader.drain(|response| {
+            assert_eq!(response.generation, generation);
+            match response.update {
+                directory::Update::Snapshot { entries, .. } => rows = Some(entries),
+                directory::Update::Finished(result) => finished = Some(result),
+            }
+        });
+        assert!(Instant::now() < until);
+        thread::sleep(Duration::from_millis(5));
+    }
+    let rows = rows.unwrap();
+    assert!(rows.iter().any(|e| e.path == path));
+    let finished = finished.unwrap();
+    assert_eq!(finished.as_ref().unwrap(), &f.a);
+    let partial = Arc::new(rows.iter().filter(|e| e.path != path).cloned().collect());
+    for progressive in [Arc::new(Vec::new()), partial, rows.clone()] {
+        let tab = app.active_tab_mut();
+        tab.apply(directory::Response {
+            generation,
+            update: directory::Update::Snapshot {
+                entries: progressive,
+                metadata_errors: 0,
+            },
+        });
+        let nav = &mut tab.navigation;
+        assert!(nav.apply_sorted(sorting::project_for_test(
+            nav.key(),
+            nav.current.raw_entries.clone(),
+            &nav.filter
+        )));
+        assert!(
+            nav.rows_selectable(),
+            "ordinary empty-filter browsing remains selectable while Loading"
+        );
+        app.reconcile_create();
+        assert!(
+            !app.create.payloads[0].selected,
+            "fresh Loading projection must not consume the creation marker, even with the created path present"
+        );
+        assert_eq!(
+            app.create.payloads[0].selection_generation,
+            Some(generation)
+        );
+        assert!(app.active_tab_mut().navigation.selection.paths.is_empty());
+    }
+    let tab = app.active_tab_mut();
+    assert!(tab.apply(directory::Response {
+        generation,
+        update: directory::Update::Finished(finished)
+    }));
+    assert!(
+        !tab.navigation.projection_fresh(),
+        "Ready requires its own fresh projection"
+    );
+    app.reconcile_create();
+    assert!(!app.create.payloads[0].selected);
+    let nav = &mut app.active_tab_mut().navigation;
+    assert!(nav.apply_sorted(sorting::project_for_test(nav.key(), rows, &nav.filter)));
+    app.reconcile_create();
+    assert!(app.create.payloads[0].selected);
+    assert_eq!(
+        app.active_tab_mut().navigation.selection.paths,
+        [path].into_iter().collect()
+    );
+    // A consumed marker must not select again over a later user selection.
+    let tab = app.active_tab_mut();
+    let index = tab
+        .navigation
+        .current
+        .entries
+        .iter()
+        .position(|e| e.path == f.a.join("sentinel-a"))
+        .unwrap();
+    tab.navigation
+        .selection
+        .click(&tab.navigation.current.entries, index, false, false);
+    app.reconcile_create();
+    assert_eq!(
+        app.active_tab_mut().navigation.selection.paths,
+        [f.a.join("sentinel-a")].into_iter().collect()
+    );
+    stop(&mut app);
+}
+
+#[test]
+fn s019_r01_normalized_new_navigation_rejects_deferred_old_generation_selection() {
+    let f = Fixture::new();
+    fs::create_dir(f.a.join("child")).unwrap();
+    let gate = Arc::new(BeforeCallGate::default());
+    let mut app = f.app(Some(gate.clone()));
+    let tab = app.active_tab_mut();
+    let index = tab
+        .navigation
+        .current
+        .entries
+        .iter()
+        .position(|e| e.path == f.a.join("sentinel-a"))
+        .unwrap();
+    tab.navigation
+        .selection
+        .click(&tab.navigation.current.entries, index, false, false);
+    let prior_selection = tab.navigation.selection.paths.clone();
+    let prior_rows = tab.navigation.current.raw_entries.clone();
+    open(&mut app, Kind::CreateFile, "normalized-created.txt");
+    let captured = app.create.editor.as_ref().unwrap().target.clone();
+    let id = commit(&mut app);
+    wait(&mut app, |_| gate.entered.load(Ordering::Acquire));
+    let alias = f.a.join("child").join("..");
+    app.navigate(alias.clone(), Intent::New);
+    let pending = app.active_tab_mut().navigation.key().generation;
+    assert_eq!(pending, captured.generation + 1);
+    app.loader.cancel(captured.tab.0); // Control only the pending alias completion, not creation.
+    gate.release.store(true, Ordering::Release);
+    let until = Instant::now() + Duration::from_secs(10);
+    while outcome(&app, id).is_none() {
+        app.create_logic();
+        assert!(Instant::now() < until);
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(outcome(&app, id), Some(State::Stopped(Outcome::Completed)));
+    assert_eq!(fs::read(f.a.join("normalized-created.txt")).unwrap(), b"");
+    assert_eq!(app.create.payloads[0].selection_generation, Some(0));
+    assert_eq!(
+        app.create.payloads[0].origin_generation,
+        captured.generation
+    );
+    assert_eq!(
+        app.active_tab_mut().navigation.current.generation,
+        captured.generation
+    );
+    assert_eq!(
+        app.active_tab_mut().navigation.pending_location(),
+        Some(alias.as_path())
+    );
+    assert!(app.create.dirty.contains(&captured.tab));
+    // Existing Navigation::apply same-location alias branch commits normalized A at g2.
+    let tab = app.active_tab_mut();
+    tab.apply(directory::Response {
+        generation: pending,
+        update: directory::Update::Snapshot {
+            entries: prior_rows,
+            metadata_errors: 0,
+        },
+    });
+    assert!(tab.apply(directory::Response {
+        generation: pending,
+        update: directory::Update::Finished(Ok(f.a.clone()))
+    }));
+    assert_eq!(tab.navigation.current.location, f.a);
+    assert_eq!(tab.navigation.current.generation, pending);
+    assert_eq!(tab.navigation.selection.paths, prior_selection);
+    app.reconcile_create();
+    assert_eq!(
+        app.active_tab_mut().navigation.current.generation,
+        pending + 1
+    );
+    assert!(
+        app.create.dirty.is_empty(),
+        "ordinary affected-tab refresh still runs"
+    );
+    finish(&mut app, id); // Actual g3 loader/sorter rows include the actual P18-created path.
+    assert!(
+        app.active_tab_mut()
+            .navigation
+            .current
+            .entries
+            .iter()
+            .any(|e| e.path == f.a.join("normalized-created.txt"))
+    );
+    assert_eq!(
+        app.active_tab_mut().navigation.selection.paths,
+        prior_selection,
+        "normalized explicit New navigation must not authorize old-context auto-selection"
+    );
+    let payload = &app.create.payloads[0];
+    assert!(payload.selection_generation.is_none());
+    assert_eq!(payload.origin_generation, captured.generation);
+    assert_eq!(payload.target.tab, captured.tab);
+    assert_eq!(payload.target.path, captured.path);
+    assert_eq!(
+        payload.target.generation, captured.generation,
+        "captured Target remains immutable at g1"
+    );
+    stop(&mut app);
+}
+
+#[test]
 fn s019_invalid_names_and_valid_enter_once_escape_owns_submission_frame() {
     let f = Fixture::new();
     let mut app = f.app(None);
