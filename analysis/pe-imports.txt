@@ -1,0 +1,393 @@
+
+FPilot.exe:	file format coff-x86-64
+Characteristics 0x23
+	relocations stripped
+	executable
+	large address aware
+
+Time/Date               Tue Feb 10 13:18:49 2026
+Magic                   020b	(PE32+)
+MajorLinkerVersion      14
+MinorLinkerVersion      32
+SizeOfCode              00000000001bd800
+SizeOfInitializedData   0000000000054a00
+SizeOfUninitializedData 0000000000000000
+AddressOfEntryPoint     0000000000188fb0
+BaseOfCode              0000000000001000
+ImageBase               0000000140000000
+SectionAlignment        00001000
+FileAlignment           00000200
+MajorOSystemVersion     6
+MinorOSystemVersion     0
+MajorImageVersion       0
+MinorImageVersion       0
+MajorSubsystemVersion   6
+MinorSubsystemVersion   0
+Win32Version            00000000
+SizeOfImage             00215000
+SizeOfHeaders           00000400
+CheckSum                0021d722
+Subsystem               00000002	(Windows GUI)
+DllCharacteristics      00008120
+					HIGH_ENTROPY_VA
+					NX_COMPAT
+					TERMINAL_SERVER_AWARE
+SizeOfStackReserve      0000000000100000
+SizeOfStackCommit       0000000000100000
+SizeOfHeapReserve       0000000000100000
+SizeOfHeapCommit        0000000000001000
+LoaderFlags             00000000
+NumberOfRvaAndSizes     00000010
+
+The Data Directory
+Entry 0 0000000000000000 00000000 Export Directory [.edata (or where ever we found it)]
+Entry 1 00000000001e4c90 0000012c Import Directory [parts of .idata]
+Entry 2 00000000001f2000 00022e58 Resource Directory [.rsrc]
+Entry 3 00000000001e9000 00008508 Exception Directory [.pdata]
+Entry 4 0000000000212600 00003050 Security Directory
+Entry 5 0000000000000000 00000000 Base Relocation Directory [.reloc]
+Entry 6 00000000001d711c 00000054 Debug Directory
+Entry 7 0000000000000000 00000000 Description Directory
+Entry 8 0000000000000000 00000000 Special Directory
+Entry 9 0000000000000000 00000000 Thread Storage Directory [.tls]
+Entry a 0000000000000000 00000000 Load Configuration Directory
+Entry b 0000000000000000 00000000 Bound Import Directory
+Entry c 00000000001bf000 000008c0 Import Address Table Directory
+Entry d 0000000000000000 00000000 Delay Import Directory
+Entry e 0000000000000000 00000000 CLR Runtime Header
+Entry f 0000000000000000 00000000 Reserved
+
+The Import Tables:
+  lookup 001e4f10 time 00000000 fwd 00000000 name 001e5d9c addr 001bf150
+
+    DLL Name: KERNEL32.dll
+    Hint/Ord  Name
+         206  CreateEventW
+         252  CreateSemaphoreExW
+        1460  Sleep
+         562  GetCurrentProcess
+         563  GetCurrentProcessId
+         376  ExitProcess
+         566  GetCurrentThread
+         567  GetCurrentThreadId
+        1494  TlsAlloc
+        1496  TlsGetValue
+        1497  TlsSetValue
+         246  CreateProcessW
+        1070  OpenProcess
+         772  GetSystemInfo
+         638  GetLocalTime
+        1535  VirtualAlloc
+        1538  VirtualFree
+        1403  SetProcessWorkingSetSize
+         260  CreateThreadpool
+        1436  SetThreadpoolThreadMinimum
+         265  CreateThreadpoolWork
+        1468  SubmitThreadpoolWork
+         161  CloseThreadpoolWork
+         453  FreeLibrary
+         657  GetModuleFileNameW
+         661  GetModuleHandleW
+        1551  WaitForMultipleObjectsEx
+        1002  LoadResource
+        1022  LockResource
+         432  FindResourceW
+         996  LoadLibraryA
+         999  LoadLibraryW
+         852  GlobalAlloc
+         870  GlobalUnlock
+         863  GlobalLock
+         859  GlobalFree
+        1005  LocalAlloc
+        1010  LocalFree
+         448  FormatMessageA
+        1129  QueryFullProcessImageNameW
+        1035  MoveFileExW
+        1449  SetVolumeLabelW
+        1175  ReadDirectoryChangesW
+         505  GetComputerNameW
+        1534  VerifyVersionInfoW
+        1473  SystemTimeToTzSpecificLocalTime
+         388  FileTimeToSystemTime
+        1472  SystemTimeToFileTime
+         817  GetTimeFormatW
+         572  GetDateFormatEx
+        1591  WideCharToMultiByte
+         268  CreateToolhelp32Snapshot
+        1102  Process32FirstW
+        1104  Process32NextW
+        1552  WaitForSingleObject
+        1237  ReleaseMutex
+        1242  ReleaseSemaphore
+        1352  SetEvent
+         128  CancelIoEx
+         695  GetOverlappedResult
+         307  DeviceIoControl
+        1137  QueryPerformanceFrequency
+        1136  QueryPerformanceCounter
+         637  GetLastError
+        1444  SetUnhandledExceptionFilter
+         148  CloseHandle
+        1082  OutputDebugStringW
+         843  GetVolumePathNamesForVolumeNameW
+         793  GetTempPathW
+        1611  WriteFile
+        1176  ReadFile
+         837  GetVolumeInformationW
+         234  CreateMutexW
+         643  GetLogicalDriveStringsW
+         629  GetFullPathNameW
+         620  GetFinalPathNameByHandleW
+         616  GetFileSizeEx
+         615  GetFileSize
+         606  GetFileAttributesExW
+         609  GetFileAttributesW
+         587  GetDriveTypeW
+         580  GetDiskFreeSpaceExW
+         441  FlushFileBuffers
+         434  FindVolumeClose
+         427  FindNextVolumeW
+         422  FindNextFileW
+         416  FindFirstVolumeW
+         405  FindFirstFileExW
+         410  FindFirstFileW
+         399  FindClose
+         296  DeleteFileW
+         218  CreateFileW
+         380  ExpandEnvironmentStringsW
+         497  GetCommandLineW
+         717  GetProcAddress
+        1530  VerSetConditionMask
+
+  lookup 001e53b8 time 00000000 fwd 00000000 name 001e62dc addr 001bf5f8
+
+    DLL Name: USER32.dll
+    Hint/Ord  Name
+         222  DrawTextW
+         381  GetMenuDefaultItem
+         383  GetMenuItemCount
+         452  GetSubMenu
+         178  DestroyMenu
+         114  CreatePopupMenu
+         390  GetMenuStringW
+         457  GetSystemMetrics
+         659  MsgWaitForMultipleObjectsEx
+         397  GetMonitorInfoW
+         800  SetCapture
+         941  ToUnicode
+         362  GetKeyState
+         345  GetFocus
+           1  AddClipboardFormatListener
+         560  IsClipboardFormatAvailable
+         232  EmptyClipboard
+         738  RegisterClipboardFormatW
+         310  GetClipboardData
+         808  SetClipboardData
+          79  CloseClipboard
+         668  OpenClipboard
+         592  IsZoomed
+         567  IsIconic
+         496  GetWindowPlacement
+         898  SetWindowPos
+         656  MonitorFromWindow
+         655  MonitorFromRect
+         934  SystemParametersInfoW
+         258  EnumDisplaySettingsW
+         352  GetIconInfo
+         177  DestroyIcon
+         603  LoadIconW
+         601  LoadCursorW
+          31  CallNextHookEx
+         955  UnhookWindowsHookEx
+         908  SetWindowsHookExW
+         276  FindWindowW
+         524  InflateRect
+         272  FillRect
+        1004  WindowFromPoint
+         780  ScreenToClient
+          77  ClientToScreen
+         322  GetCursorPos
+         812  SetCursor
+         651  MessageBoxW
+         498  GetWindowRect
+         307  GetClientRect
+         903  SetWindowTextW
+         548  InvalidateRect
+         244  EndPaint
+          17  BeginPaint
+         765  RegisterWindowMessageW
+         767  ReleaseDC
+         323  GetDC
+         918  ShowWindow
+         181  DestroyWindow
+         118  CreateWindowExW
+         736  RegisterClassW
+         338  GetDoubleClickTime
+         687  PostQuitMessage
+         167  DefWindowProcW
+         166  DefWindowProcA
+         686  PostMessageW
+         962  UnregisterDeviceNotification
+         741  RegisterDeviceNotificationW
+         794  SendMessageTimeoutW
+         766  ReleaseCapture
+         346  GetForegroundWindow
+         795  SendMessageW
+         682  PeekMessageW
+         189  DispatchMessageW
+         950  TranslateMessage
+         386  GetMenuItemInfoW
+
+  lookup 001e5240 time 00000000 fwd 00000000 name 001e640a addr 001bf480
+
+    DLL Name: OPENGL32.dll
+    Hint/Ord  Name
+         105  glGenTextures
+          79  glEnable
+         124  glGetString
+         309  glTexParameterf
+         311  glTexParameteri
+         342  glViewport
+         258  glScissor
+          66  glDeleteTextures
+          18  glClearColor
+          16  glClear
+          13  glBlendFunc
+          11  glBindTexture
+         356  wglMakeCurrent
+         355  wglGetProcAddress
+         347  wglDeleteContext
+         345  wglCreateContext
+         244  glReadPixels
+         202  glPixelStorei
+
+  lookup 001e4e40 time 00000000 fwd 00000000 name 001e65b2 addr 001bf080
+
+    DLL Name: GDI32.dll
+    Hint/Ord  Name
+         948  SwapBuffers
+         643  GetCurrentObject
+          55  CreateDIBSection
+         818  Rectangle
+         898  SetDCBrushColor
+         899  SetDCPenColor
+         931  SetTextColor
+         944  StretchBlt
+         950  TextOutW
+         892  SetBkMode
+         884  SelectObject
+         650  GetDIBits
+         651  GetDeviceCaps
+         400  DescribePixelFormat
+         399  DeleteObject
+         396  DeleteDC
+          90  CreateSolidBrush
+          68  CreateFontW
+         921  SetPixelFormat
+         701  GetObjectW
+         718  GetStockObject
+          19  BitBlt
+          48  CreateCompatibleBitmap
+          25  ChoosePixelFormat
+          49  CreateCompatibleDC
+
+  lookup 001e52f0 time 00000000 fwd 00000000 name 001e6728 addr 001bf530
+
+    DLL Name: SHELL32.dll
+    Hint/Ord  Name
+         128  SHAppBarMessage
+         432  ShellExecuteW
+          42  DragQueryFileW
+           9  CommandLineToArgvW
+         359  SHGetPropertyStoreFromParsingName
+         330  SHGetFileInfoW
+         337  SHGetIDListFromObject
+         171  SHCreateShellItem
+         364  SHGetSpecialFolderLocation
+         346  SHGetKnownFolderPath
+         345  SHGetKnownFolderItem
+         323  SHGetDesktopFolder
+          88
+         134  SHBindToParent
+         388  SHParseDisplayName
+         305  SHEmptyRecycleBinW
+         155
+         161  SHCreateItemFromParsingName
+         727
+
+  lookup 001e5620 time 00000000 fwd 00000000 name 001e67c8 addr 001bf860
+
+    DLL Name: ole32.dll
+    Hint/Ord  Name
+         476  RevokeDragDrop
+         473  RegisterDragDrop
+         474  ReleaseStgMedium
+         140  CoTaskMemFree
+         464  PropVariantClear
+          43  CoCreateInstance
+         145  CoUninitialize
+         428  OleInitialize
+
+  lookup 001e4dc0 time 00000000 fwd 00000000 name 001e689a addr 001bf000
+
+    DLL Name: ADVAPI32.dll
+    Hint/Ord  Name
+         642  RegOpenKeyExW
+          95  CheckTokenMembership
+         631  RegGetValueW
+         615  RegDeleteTreeW
+         671  RegSetValueExW
+         655  RegQueryValueExW
+          32  AllocateAndInitializeSid
+         617  RegDeleteValueW
+         602  RegCreateKeyExW
+         593  RegCloseKey
+         287  FreeSid
+
+  lookup 001e5610 time 00000000 fwd 00000000 name 001e68c0 addr 001bf850
+
+    DLL Name: dwmapi.dll
+    Hint/Ord  Name
+          27  DwmSetWindowAttribute
+
+  lookup 001e4e30 time 00000000 fwd 00000000 name 001e68e2 addr 001bf070
+
+    DLL Name: DWrite.dll
+    Hint/Ord  Name
+           0  DWriteCreateFactory
+
+  lookup 001e4e20 time 00000000 fwd 00000000 name 001e68ee addr 001bf060
+
+    DLL Name: COMCTL32.dll
+    Hint/Ord  Name
+         345
+
+  lookup 001e5390 time 00000000 fwd 00000000 name 001e6950 addr 001bf5d0
+
+    DLL Name: SHLWAPI.dll
+    Hint/Ord  Name
+           1  AssocGetPerceivedType
+         143  PathRemoveFileSpecW
+          73  PathFileExistsW
+          77  PathFindFileNameW
+
+  lookup 001e52d8 time 00000000 fwd 00000000 name 001e6990 addr 001bf518
+
+    DLL Name: PROPSYS.dll
+    Hint/Ord  Name
+          60  PSGetPropertyDescription
+          54  PSFormatPropertyValue
+
+  lookup 001e5228 time 00000000 fwd 00000000 name 001e69c0 addr 001bf468
+
+    DLL Name: NETAPI32.dll
+    Hint/Ord  Name
+          82  NetApiBufferFree
+         223  NetShareEnum
+
+  lookup 001e5218 time 00000000 fwd 00000000 name 001e69e4 addr 001bf458
+
+    DLL Name: MPR.dll
+    Hint/Ord  Name
+          45  WNetGetConnectionW
+

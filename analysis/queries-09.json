@@ -1,0 +1,16 @@
+[
+  {"label":"drop-enter","name":"analyze_function","arguments":{"procedure":"0x140195a70"}},
+  {"label":"drop-over","name":"analyze_function","arguments":{"procedure":"0x140195c90"}},
+  {"label":"drop-leave","name":"analyze_function","arguments":{"procedure":"0x140195bd0"}},
+  {"label":"drop-commit","name":"analyze_function","arguments":{"procedure":"0x140196070"}},
+  {"label":"clipboard-dropfiles","name":"analyze_function","arguments":{"procedure":"0x14018c3e0"}},
+  {"label":"paste-handler","name":"analyze_function","arguments":{"procedure":"0x1400741d0"}},
+  {"label":"command-record-builder","name":"analyze_function","arguments":{"procedure":"0x140025540"}},
+  {"label":"key-name-lookup","name":"analyze_function","arguments":{"procedure":"0x14003c940"}},
+  {"label":"default-key-text","name":"read_bytes","arguments":{"address":"0x1401cec74","length":52}},
+  {"label":"drag-interface-ids","name":"read_bytes","arguments":{"address":"0x1401d6b68","length":48}},
+  {"label":"dataobject-interface-id","name":"read_bytes","arguments":{"address":"0x1401d6ca8","length":16}},
+  {"label":"drop-helper-interface-id","name":"read_bytes","arguments":{"address":"0x1401d6d48","length":16}},
+  {"label":"file-row-seeds","name":"search_strings","arguments":{"pattern":"FileItem|FileRow|Panel_Render|Dir_Render|FileIcon|FileName|ItemName|Virtual|FileList|RowItem","mode":"regex"}},
+  {"label":"file-header-seed","name":"xrefs","arguments":{"address":"0x1401d0c98"}}
+]

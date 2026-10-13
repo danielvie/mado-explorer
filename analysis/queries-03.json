@@ -1,0 +1,18 @@
+[
+  {"label":"startup","name":"resolve_containing_procedure","arguments":{"address":"0x140129a3e"},"decompile":true},
+  {"label":"operations","name":"resolve_containing_procedure","arguments":{"address":"0x1400c9f15"},"decompile":true},
+  {"label":"operations-nt","name":"resolve_containing_procedure","arguments":{"address":"0x1400cb896"},"decompile":true},
+  {"label":"rename","name":"resolve_containing_procedure","arguments":{"address":"0x14016963b"},"decompile":true},
+  {"label":"preview","name":"resolve_containing_procedure","arguments":{"address":"0x1401a08e4"},"decompile":true},
+  {"label":"watcher","name":"resolve_containing_procedure","arguments":{"address":"0x1401917b6"},"decompile":true},
+  {"label":"recycle","name":"resolve_containing_procedure","arguments":{"address":"0x1401afb44"},"decompile":true},
+  {"label":"settings","name":"resolve_containing_procedure","arguments":{"address":"0x14002f80f"},"decompile":true},
+  {"label":"session-read","name":"resolve_containing_procedure","arguments":{"address":"0x1401303aa"},"decompile":true},
+  {"label":"session-write","name":"resolve_containing_procedure","arguments":{"address":"0x14012e9c4"},"decompile":true},
+  {"label":"data-location","name":"resolve_containing_procedure","arguments":{"address":"0x140189beb"},"decompile":true},
+  {"label":"dir-load","name":"resolve_containing_procedure","arguments":{"address":"0x14005c798"},"decompile":true},
+  {"label":"file-filter-ui","name":"resolve_containing_procedure","arguments":{"address":"0x14009e345"},"decompile":true},
+  {"label":"panel-tabs","name":"resolve_containing_procedure","arguments":{"address":"0x1400fbf0c"},"decompile":true},
+  {"label":"commands","name":"resolve_containing_procedure","arguments":{"address":"0x140025e63"},"decompile":true},
+  {"label":"filter-algorithm","name":"analyze_function","arguments":{"procedure":"0x140123060"}}
+]

@@ -1,0 +1,25 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List application tasks
+    cmds:
+      - task --list
+  run:
+    desc: Run Wayfarer Files
+    cmds:
+      - cargo run
+  build:
+    desc: Build Wayfarer Files
+    cmds:
+      - cargo build
+  test:
+    desc: Check formatting, lint, and tests
+    cmds:
+      - cargo fmt -- --check
+      - cargo clippy --all-targets -- -D warnings
+      - cargo test
+  clean:
+    desc: Remove this application's Cargo build output
+    cmds:
+      - cargo clean

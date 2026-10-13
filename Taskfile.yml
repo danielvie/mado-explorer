@@ -1,0 +1,23 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+  run:
+    desc: Run a static REA query batch, not FPilot.exe
+    requires:
+      vars: [BATCH]
+    cmds:
+      - node analysis/rea-batch.mjs "{{.BATCH}}"
+  test:
+    desc: Check the batch runner, artifact identity, and specification evidence links
+    cmds:
+      - node --check analysis/rea-batch.mjs
+      - node analysis/rea-batch.mjs --check
+      - node analysis/verify-evidence.mjs
+  clean:
+    desc: Remove the regenerable REA snapshot while preserving evidence
+    cmds:
+      - node -e "require('node:fs').rmSync('analysis/fpilot.rea-snapshot.json', {force:true})"

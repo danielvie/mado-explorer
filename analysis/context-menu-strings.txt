@@ -1,0 +1,75 @@
+ 1c18a0 Tooltip_BookmarkContextCommand
+ 1c18d8 Tooltip_UnbookmarkContextCommand
+ 1c3288 ContextMenu_Hint
+ 1c32a0 Select a system command...
+ 1c32c0 ContextMenu_CopyHere
+ 1c32e8 ContextMenu_MoveHere
+ 1c3310 ContextMenu_LinkHere
+ 1c3340 ContextMenu_CancelDrop
+ 1c3570 ConfirmPopup_ContextItemPin
+ 1c35a8 ConfirmPopup_ContextItemUnpin
+ 1c5158 Installer_AddToRightClickMenu
+ 1c5190 Installer_AddToRightClickMenu_Tooltip
+ 1c51c0 Adds "Open in File Pilot" and "File Pilot here" to right-click menu for folders, files, and desktop.
+ 1c5650 Including shortcuts, right-click menu items, default program registration and PATH changes.
+ 1c9de0 HK_TabMenu
+ 1c9df0 Tab Menu
+ 1c9e00 HK_TabMenu_Tooltip
+ 1c9e18 Open dropdown menu for the selected tab.
+ 1ca520 HK_MenuOpen
+ 1ca52c Menu
+ 1ca538 HK_MenuOpen_Tooltip
+ 1ca550 Open the top left main menu.
+ 1ca760 HK_ContextMenuOpen
+ 1ca778 Context Menu
+ 1ca788 HK_ContextMenuOpen_Tooltip
+ 1ca7b0 Open the system context menu on file selection or folder background.
+ 1ca7f8 HK_ContextMenuActivate
+ 1ca810 HK_ContextMenuCancel
+ 1ca828 HK_ContextMenuExit
+ 1caec0 Install or uninstall File Pilot, with options to create Desktop, Start menu, and Context menu items.
+ 1cdf68 MenuButton
+ 1ce238 menu
+ 1ce6f9 	"ContextMenuBookmarks": [
+ 1ce818 ContextMenuBookmarks
+ 1cffd8 ContextMenu_TextEdit
+ 1d0590 HK_ContextMenuExpandGroup
+ 1d05b0 HK_ContextMenuCollapseGroup
+ 1d24e8 SetProcessDpiAwarenessContext
+ 1d3b30 P_GetContextMenu for dir path '%S', file paths count: %llu
+ 1d3b70 P_GetContextMenu
+ 1d3b88 Win_ContextMenuBuild
+ 1d3ba0 	Win_ContextMenuBuild GetCommandString GCS_VERBW failed for item name: %S
+ 1d3cc0 P_ContextMenuInvoke
+ 1d48f8 WGL_ARB_create_context_profile
+ 1d4968 wglCreateContextAttribsARB
+ 1e4c6a GetMenuStringW
+ 1e4c7c CreatePopupMenu
+ 1e4c8e DestroyMenu
+ 1e4c9c GetSubMenu
+ 1e4caa GetMenuItemCount
+ 1e4cbe GetMenuItemInfoW
+ 1e4cd2 GetMenuDefaultItem
+ 1e4eea wglCreateContext
+ 1e4efe wglDeleteContext
+ 1e5230 SHCreateItemFromParsingName
+ 1e528a SHCreateShellItem
+ 1e5302 SHBindToParent
+ 1e5328 SHELL32.dll
+ 211505 035-0xe023-menu
+ 1d3230 Shell_TrayWnd
+ 1d3fa0 Software\Classes\Directory\shell\OpenInFilePilot
+ 1d4010 Software\Classes\Directory\shell\OpenInFilePilot\command
+ 1d40a0 Software\Classes\*\shell\OpenInFilePilot
+ 1d4100 Software\Classes\*\shell\OpenInFilePilot\command
+ 1d4170 Software\Classes\DesktopBackground\shell\FilePilotHere
+ 1d41e0 Software\Classes\DesktopBackground\shell\FilePilotHere\command
+ 1d4270 Software\Classes\Directory\Background\shell\FilePilotHere
+ 1d42f0 Software\Classes\Directory\Background\shell\FilePilotHere\command
+ 1d43a8 Software\Classes\Drive\shell
+ 1d43f0 Software\Classes\Drive\shell\open\command
+ 1d4450 Software\Classes\Directory\shell
+ 1d44a0 Software\Classes\Directory\shell\open\command
+ 1d4500 Software\Classes\CLSID\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\shell\opennewwindow\command
+ 1d45c0 Software\Classes\Drive\shell\open
+ 1d4610 Software\Classes\Directory\shell\open

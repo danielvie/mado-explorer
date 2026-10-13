@@ -1,0 +1,23 @@
+{"level":30,"time":1791849328445,"application":"rea","mode":"mcp","layer":"server","tool":"open_binary","durationMs":1608.76,"status":"ok","msg":"MCP tool execution completed"}
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\FPilot.exe',
+    format: 'pe',
+    kind: 'executable',
+    sha256: '07d106ca23adab9115af3d529b6fc4bb27dd831e0923103b655707e76326363e',
+    architecture: 'x86_64'
+  }
+}
+{"level":30,"time":1791849447292,"application":"rea","mode":"mcp","layer":"server","tool":"resolve_containing_procedure","durationMs":118839.8,"status":"ok","msg":"MCP tool execution completed"}
+startup ev_4b0eb81543f32abc953d6bca3e320e31db6a92b9ccfb7b1639252ff537e327ca C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-02-startup.json
+{"level":30,"time":1791849449982,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":2679.26,"status":"ok","msg":"MCP tool execution completed"}
+file:///C:/SANDBOX/REPOS/rev-filepilot/analysis/rea-batch.mjs:36
+    if (result.isError) throw new Error(JSON.stringify(result));
+                              ^
+
+Error: {"content":[{"type":"text","text":"{\"error\":{\"code\":\"resource_constraint\",\"category\":\"resource_constraint\",\"message\":\"The operation completed, but its complete MCP response exceeds the stdio response budget. The analysis result was not truncated. Export retained evidence to consume the complete analysis, or use complete CLI JSON output.\",\"retryable\":false,\"remediation\":{\"action\":\"Discover retained records with get_evidence_bundle and detail: summary, then inspect compatible records through inspect_analysis_view using an exact Evidence reference. Export complete retained session evidence through export_evidence_bundle to a caller-selected path, or use complete CLI JSON output. The connection remains usable.\"},\"details\":{\"operation\":\"analyze_function\",\"resource\":\"transport\",\"reason\":\"The operation completed, but its complete MCP response exceeds the stdio response budget. The analysis result was not truncated. Export retained evidence to consume the complete analysis, or use complete CLI JSON output.\",\"reported_limits\":{\"boundary\":\"mcp-response\",\"default_receive_buffer_bytes\":10485760,\"result_budget_bytes\":10484736,\"max_string_code_units\":536869864,\"response_bytes_at_least\":10507388,\"response_code_units_at_least\":10507388,\"constraint\":\"receive-buffer\",\"evidence_id\":\"ev_9c684b54d33804773349f6ab88428aade099549bbfd355aeeb52bf75552e0dbd\",\"evidence_reference\":{\"kind\":\"retained-evidence\",\"evidence_id\":\"ev_9c684b54d33804773349f6ab88428aade099549bbfd355aeeb52bf75552e0dbd\"}}}}}"}],"isError":true}
+    at invoke (file:///C:/SANDBOX/REPOS/rev-filepilot/analysis/rea-batch.mjs:36:31)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///C:/SANDBOX/REPOS/rev-filepilot/analysis/rea-batch.mjs:50:25
+
+Node.js v24.15.0

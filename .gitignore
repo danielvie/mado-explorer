@@ -1,0 +1,17 @@
+# Rust build output
+/target/
+/app/target/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Raw REA exports; keep extracted code and analysis
+/analysis/*.rea-snapshot.json
+/analysis/rea/*.json
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,20 @@
+[
+  {"label":"drag-register","name":"resolve_containing_procedure","arguments":{"address":"0x14019508f"},"decompile":true},
+  {"label":"drag-start","name":"resolve_containing_procedure","arguments":{"address":"0x14019560a"},"decompile":true},
+  {"label":"drag-description","name":"resolve_containing_procedure","arguments":{"address":"0x1401952f6"},"decompile":true},
+  {"label":"clipboard-read","name":"resolve_containing_procedure","arguments":{"address":"0x1400c3ddc"},"decompile":true},
+  {"label":"clipboard-write","name":"resolve_containing_procedure","arguments":{"address":"0x1400cd098"},"decompile":true},
+  {"label":"window-proc","name":"resolve_containing_procedure","arguments":{"address":"0x1401b37f3"},"decompile":true},
+  {"label":"shell-icon","name":"resolve_containing_procedure","arguments":{"address":"0x14019f236"},"decompile":true},
+  {"label":"recycle-enumeration","name":"resolve_containing_procedure","arguments":{"address":"0x1401a904a"},"decompile":true},
+  {"label":"clipboard-get-callers","name":"procedure_callers","arguments":{"procedure":"EXTERNAL:0x73"}},
+  {"label":"clipboard-set-callers","name":"procedure_callers","arguments":{"procedure":"EXTERNAL:0x74"}},
+  {"label":"ole-init-callers","name":"procedure_callers","arguments":{"procedure":"EXTERNAL:0xf0"}},
+  {"label":"worker-callback","name":"analyze_function","arguments":{"procedure":"0x1401b12c0"}},
+  {"label":"key-chord-parser","name":"analyze_function","arguments":{"procedure":"0x140034f60"}},
+  {"label":"command-registration-assembly","name":"procedure_assembly","arguments":{"procedure":"0x1400258e0"}},
+  {"label":"shell-comparator-bytes","name":"read_bytes","arguments":{"address":"0x1400178a0","length":16}},
+  {"label":"shell-comparator-subtract","name":"inspect_native_instruction","arguments":{"address":"0x1400178a3"}},
+  {"label":"shell-comparator-return","name":"inspect_native_instruction","arguments":{"address":"0x1400178a6"}},
+  {"label":"hotkey-keys-label","name":"read_bytes","arguments":{"address":"0x1401d1a90","length":8}}
+]

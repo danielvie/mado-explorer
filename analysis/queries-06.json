@@ -1,0 +1,11 @@
+[
+  {"label":"copy-label","name":"read_bytes","arguments":{"address":"0x1401c03e4","length":8}},
+  {"label":"move-label","name":"read_bytes","arguments":{"address":"0x1401c0200","length":8}},
+  {"label":"storage-guid-roaming","name":"read_bytes","arguments":{"address":"0x1401d6bf8","length":16}},
+  {"label":"storage-guid-local","name":"read_bytes","arguments":{"address":"0x1401d6c38","length":16}},
+  {"label":"executable-path","name":"analyze_function","arguments":{"procedure":"0x14019d900"}},
+  {"label":"path-stat","name":"analyze_function","arguments":{"procedure":"0x1400cbd50"}},
+  {"label":"config-read","name":"analyze_function","arguments":{"procedure":"0x140039820"}},
+  {"label":"config-recovery","name":"analyze_function","arguments":{"procedure":"0x1400356f0"}},
+  {"label":"case-search","name":"analyze_function","arguments":{"procedure":"0x140124360"}}
+]

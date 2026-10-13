@@ -1,0 +1,40 @@
+{"level":30,"time":1791852508200,"application":"rea","mode":"mcp","layer":"server","tool":"open_binary","durationMs":8926.2,"status":"ok","msg":"MCP tool execution completed"}
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\FPilot.exe',
+    format: 'pe',
+    kind: 'executable',
+    sha256: '07d106ca23adab9115af3d529b6fc4bb27dd831e0923103b655707e76326363e',
+    architecture: 'x86_64'
+  }
+}
+{"level":30,"time":1791852625620,"application":"rea","mode":"mcp","layer":"server","tool":"read_bytes","durationMs":117408.07,"status":"ok","msg":"MCP tool execution completed"}
+embedded-fragment-shader ev_73810092362e4370dad89f4d609cb069a7b6dda1f33b876cbd885fb0bee41d4b C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-11-embedded-fragment-shader.json
+{"level":30,"time":1791852625628,"application":"rea","mode":"mcp","layer":"server","tool":"read_bytes","durationMs":1.36,"status":"ok","msg":"MCP tool execution completed"}
+embedded-vertex-shader ev_8efad9242ff9041b9946139e1789a37c7bd534554bceed0410e919cdc3c18f60 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-11-embedded-vertex-shader.json
+{"level":30,"time":1791852625631,"application":"rea","mode":"mcp","layer":"server","tool":"read_bytes","durationMs":0.46,"status":"ok","msg":"MCP tool execution completed"}
+drop-target-interface-id ev_bf23d0dad720fe2d3f9cd3dde03fc09d552c6c0d2e047a17a5ec0aa7db3e95d2 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-11-drop-target-interface-id.json
+{"level":30,"time":1791852625800,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":167.02,"status":"ok","msg":"MCP tool execution completed"}
+drag-ui-dispatch ev_a305210222d1f58358ef81241d442a8f8fe60472516fb01f189fd242728ee475 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-11-drag-ui-dispatch.json
+{"level":30,"time":1791852625872,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_info","durationMs":7.63,"status":"ok","msg":"MCP tool execution completed"}
+panel-renderer-metadata ev_80219f768c3ecf8e772cb4fbfa23159e2a5dd0eefadd99754b9077ad0c107bf3 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-11-panel-renderer-metadata.json
+{"level":30,"time":1791852626016,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_pseudo_code","durationMs":139.41,"status":"ok","msg":"MCP tool execution completed"}
+panel-renderer-pseudocode ev_c571f2845b4ac5fd76a9b32bfa971bb01e51eb58ce544dbf17e8aadff2284801 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-11-panel-renderer-pseudocode.json
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\analysis\\rea\\queries-11-bundle.json',
+    bytes: 52398563,
+    records: 109,
+    unknowns: 0
+  }
+}
+{"level":30,"time":1791852641253,"application":"rea","mode":"mcp","layer":"server","tool":"close_binary","durationMs":14542.54,"status":"ok","msg":"MCP tool execution completed"}
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\analysis\\fpilot.rea-snapshot.json',
+    bytes: 103183129,
+    primitive_entries: 42,
+    workflow_entries: 1,
+    evidence_records: 109
+  }
+}

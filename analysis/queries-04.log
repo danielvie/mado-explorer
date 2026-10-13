@@ -1,0 +1,24 @@
+{"level":30,"time":1791849776234,"application":"rea","mode":"mcp","layer":"server","tool":"open_binary","durationMs":1664.8,"status":"ok","msg":"MCP tool execution completed"}
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\FPilot.exe',
+    format: 'pe',
+    kind: 'executable',
+    sha256: '07d106ca23adab9115af3d529b6fc4bb27dd831e0923103b655707e76326363e',
+    architecture: 'x86_64'
+  }
+}
+{"level":30,"time":1791849892236,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":115995.33,"status":"ok","msg":"MCP tool execution completed"}
+filter-algorithm ev_4b786f7f26851765897b320658a520943f137b516e906b434ed9f2ed1aaf2fd2 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-04-filter-algorithm.json
+{"level":40,"time":1791849892477,"application":"rea","mode":"mcp","layer":"ghidra-bridge","method":"analyze_function","status":"error","msg":"Ghidra bridge request completed"}
+{"level":40,"time":1791849892477,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":2.46,"status":"error","msg":"MCP tool execution completed"}
+file:///C:/SANDBOX/REPOS/rev-filepilot/analysis/rea-batch.mjs:39
+      if (error.code !== 'resource_constraint' || error.details?.resource !== 'transport' || !id) throw new Error(JSON.stringify(error));
+                                                                                                        ^
+
+Error: {"code":"invalid_request","category":"invalid_input","message":"Analysis input is invalid. Check the arguments and try again.","retryable":true,"remediation":{"action":"Correct the listed arguments and retry."},"details":{"operation":"analyze_function","issues":[{"path":[],"reason":"invalid_value","message":"No procedure exists at the requested address: 0x1400178a0"}]}}
+    at invoke (file:///C:/SANDBOX/REPOS/rev-filepilot/analysis/rea-batch.mjs:39:105)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///C:/SANDBOX/REPOS/rev-filepilot/analysis/rea-batch.mjs:55:22
+
+Node.js v24.15.0

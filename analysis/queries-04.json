@@ -1,0 +1,13 @@
+[
+  {"label":"filter-algorithm","name":"analyze_function","arguments":{"procedure":"0x140123060"}},
+  {"label":"shell-score-comparator","name":"analyze_function","arguments":{"procedure":"0x1400178a0"}},
+  {"label":"operation-labels","name":"read_bytes","arguments":{"address":"0x1401e87c0","length":192}},
+  {"label":"operation-interfaces","name":"read_bytes","arguments":{"address":"0x1401d6d18","length":160}},
+  {"label":"wic-interfaces","name":"read_bytes","arguments":{"address":"0x1401d6c58","length":64}},
+  {"label":"operation-thread","name":"analyze_function","arguments":{"procedure":"0x14019b830"}},
+  {"label":"rename-completion","name":"analyze_function","arguments":{"procedure":"0x140169c00"}},
+  {"label":"settings-config-path","name":"xrefs","arguments":{"address":"0x1401d3b20"}},
+  {"label":"userdata-path","name":"xrefs","arguments":{"address":"0x1401d3b38"}},
+  {"label":"context-query","name":"analyze_function","arguments":{"procedure":"0x1401a45f0"}},
+  {"label":"context-invoke","name":"analyze_function","arguments":{"procedure":"0x1400c2bf0"}}
+]

@@ -1,0 +1,22 @@
+[
+  {"label":"config-file","name":"search_strings","arguments":{"pattern":"FPilot-"}},
+  {"label":"startup","name":"xrefs","arguments":{"address":"0x1401cf2b8"}},
+  {"label":"operations","name":"xrefs","arguments":{"address":"0x1401d47c8"}},
+  {"label":"operations-nt","name":"xrefs","arguments":{"address":"0x1401d4870"}},
+  {"label":"rename","name":"xrefs","arguments":{"address":"0x1401d13f8"}},
+  {"label":"preview","name":"xrefs","arguments":{"address":"0x1401d4f20"}},
+  {"label":"watcher","name":"xrefs","arguments":{"address":"0x1401d4ab0"}},
+  {"label":"recycle","name":"xrefs","arguments":{"address":"0x1401d3fd0"}},
+  {"label":"settings-key","name":"xrefs","arguments":{"address":"0x1401ce758"}},
+  {"label":"session-read","name":"xrefs","arguments":{"address":"0x1401d0338"}},
+  {"label":"session-write","name":"xrefs","arguments":{"address":"0x1401cff10"}},
+  {"label":"session-path","name":"xrefs","arguments":{"address":"0x1401d3b50"}},
+  {"label":"dir-load","name":"xrefs","arguments":{"address":"0x1401d13b0"}},
+  {"label":"file-filter","name":"xrefs","arguments":{"address":"0x1401c0898"}},
+  {"label":"panel-tabs","name":"xrefs","arguments":{"address":"0x1401d0c28"}},
+  {"label":"load-startup","name":"xrefs","arguments":{"address":"0x1401cea00"}},
+  {"label":"commands","name":"xrefs","arguments":{"address":"0x1401c7060"}},
+  {"label":"shell-builder","name":"analyze_function","arguments":{"procedure":"0x14018e300"}},
+  {"label":"shell-dispatch","name":"analyze_function","arguments":{"procedure":"0x14003efc0"}},
+  {"label":"shell-search","name":"analyze_function","arguments":{"procedure":"0x140040560"}}
+]

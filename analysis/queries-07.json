@@ -1,0 +1,15 @@
+[
+  {"label":"interop-imports","name":"search_procedures","arguments":{"pattern":"Clipboard|DragDrop|OleInitialize|CoInitialize|GetAnyOperationsAborted|DoDragDrop","mode":"regex"}},
+  {"label":"drag-register-seed","name":"xrefs","arguments":{"address":"0x1401d46a8"}},
+  {"label":"drag-start-seed","name":"xrefs","arguments":{"address":"0x1401d46c8"}},
+  {"label":"drag-description-seed","name":"xrefs","arguments":{"address":"0x1401d4700"}},
+  {"label":"clipboard-effect-seed","name":"xrefs","arguments":{"address":"0x1401d50d8"}},
+  {"label":"window-proc-seed","name":"xrefs","arguments":{"address":"0x1401d3c78"}},
+  {"label":"icon-seed","name":"xrefs","arguments":{"address":"0x1401d4eb8"}},
+  {"label":"operation-worker","name":"analyze_function","arguments":{"procedure":"0x1400cb980"}},
+  {"label":"hotkey-parser","name":"analyze_function","arguments":{"procedure":"0x140035100"}},
+  {"label":"dynamic-submenus","name":"analyze_function","arguments":{"procedure":"0x1400c7550"}},
+  {"label":"recycle-enumeration-seed","name":"xrefs","arguments":{"address":"0x1401d4930"}},
+  {"label":"command-registration-metadata","name":"procedure_info","arguments":{"procedure":"0x1400258e0"}},
+  {"label":"shell-comparator-instruction","name":"inspect_native_instruction","arguments":{"address":"0x1400178a0"}}
+]

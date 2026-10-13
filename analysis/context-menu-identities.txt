@@ -1,0 +1,26 @@
+Source FPilot.exe; bytes 2184784
+SHA256 07d106ca23adab9115af3d529b6fc4bb27dd831e0923103b655707e76326363e
+IID_IContextMenu VA 0x1401d6aa8 file 0x1d56a8 e414020000000000c000000000000046
+IID_IContextMenu2 VA 0x1401d6a58 file 0x1d5658 f414020000000000c000000000000046
+IID_IContextMenu3 VA 0x1401d6ba8 file 0x1d57a8 a0e0fcbc17ecd0118d1000a0c90f2719
+IID_IShellView VA 0x1401d6b78 file 0x1d5778 e314020000000000c000000000000046
+VA 0x1401d4ff0 file 0x1d3bf0 "groupby"
+VA 0x1401d4ff8 file 0x1d3bf8 "pintohome"
+VA 0x1401d5008 file 0x1d3c08 "viewcustomwizard"
+VA 0x1401d501c file 0x1d3c1c "undo"
+VA 0x1401d5024 file 0x1d3c24 "redo"
+VA 0x1401d5030 file 0x1d3c30 "windows.share"
+VA 0x1401d5040 file 0x1d3c40 "newfolder"
+VA 0x1401d504c file 0x1d3c4c ".txt"
+VA 0x1401d5054 file 0x1d3c54 "view"
+VA 0x1401d5060 file 0x1d3c60 "arrange"
+VA 0x1401d5068 file 0x1d3c68 "paste"
+VA 0x1401d5070 file 0x1d3c70 "pastelink"
+VA 0x1401d5088 file 0x1d3c88 "refresh"
+VA 0x1401d48bc file 0x1d34bc "open"
+VA 0x1401d5090 file 0x1d3c90 "opencontaining"
+VA 0x1401d50a0 file 0x1d3ca0 "copy"
+VA 0x1401d50a8 file 0x1d3ca8 "cut"
+VA 0x1401cf4ac file 0x1ce0ac "delete"
+VA 0x1401d50ac file 0x1d3cac "rename"
+VA 0x1401d50b8 file 0x1d3cb8 "newlink"

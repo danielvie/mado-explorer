@@ -1,0 +1,7 @@
+C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um/KnownFolders.h:123:DEFINE_KNOWN_FOLDER(FOLDERID_RoamingAppData,      0x3EB685DB, 0x65F9, 0x4CF6, 0xA0, 0x3A, 0xE3, 0xEF, 0x65, 0x72, 0x9F, 0x3D);
+C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um/KnownFolders.h:126:DEFINE_KNOWN_FOLDER(FOLDERID_LocalAppData,        0xF1B32785, 0x6FBA, 0x4FCF, 0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91);
+C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um/KnownFolders.h:129:DEFINE_KNOWN_FOLDER(FOLDERID_LocalAppDataLow,     0xA520A1A4, 0x1780, 0x4FF6, 0xBD, 0x18, 0x16, 0x73, 0x43, 0xC5, 0xAF, 0x16);
+C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um/wincodec.h:609:DEFINE_GUID(GUID_WICPixelFormat32bppPRGBA, 0x3cc4a650, 0xa527, 0x4d37, 0xa9, 0x16, 0x31, 0x42, 0xc7, 0xeb, 0xed, 0xba);
+C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um/ShObjIdl_core.h:17170:    MIDL_INTERFACE("947aab5f-0a5c-4c13-b4d6-4bf7836fc9f8")
+C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um/ShObjIdl_core.h:17171:    IFileOperation : public IUnknown
+C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um/ShObjIdl_core.h:29334:class DECLSPEC_UUID("3ad05575-8857-4850-9277-11b85bdb8e09")

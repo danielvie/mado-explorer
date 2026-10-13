@@ -1,0 +1,10 @@
+[
+  {"label":"copy-handler","name":"analyze_function","arguments":{"procedure":"0x1400739b0"}},
+  {"label":"cut-handler","name":"analyze_function","arguments":{"procedure":"0x140073b80"}},
+  {"label":"incoming-data-reader","name":"analyze_function","arguments":{"procedure":"0x1401949d0"}},
+  {"label":"drop-effect-picker","name":"analyze_function","arguments":{"procedure":"0x140194d20"}},
+  {"label":"clipboard-state-update","name":"analyze_function","arguments":{"procedure":"0x1400666b0"}},
+  {"label":"file-header","name":"resolve_containing_procedure","arguments":{"address":"0x1400f5c05"},"decompile":true},
+  {"label":"sort-helper","name":"analyze_function","arguments":{"procedure":"0x140165a20"}},
+  {"label":"shell-object-for-paths","name":"analyze_function","arguments":{"procedure":"0x1401a16e0"}}
+]

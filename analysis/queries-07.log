@@ -1,0 +1,54 @@
+{"level":30,"time":1791851515176,"application":"rea","mode":"mcp","layer":"server","tool":"open_binary","durationMs":3494.51,"status":"ok","msg":"MCP tool execution completed"}
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\FPilot.exe',
+    format: 'pe',
+    kind: 'executable',
+    sha256: '07d106ca23adab9115af3d529b6fc4bb27dd831e0923103b655707e76326363e',
+    architecture: 'x86_64'
+  }
+}
+{"level":30,"time":1791851629343,"application":"rea","mode":"mcp","layer":"server","tool":"search_procedures","durationMs":114160.45,"status":"ok","msg":"MCP tool execution completed"}
+interop-imports ev_f73e5b67f6cb7165b6fa9db7d593870e06c7a74f406e9d461a48b94d1d681179 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-interop-imports.json
+{"level":30,"time":1791851629359,"application":"rea","mode":"mcp","layer":"server","tool":"xrefs","durationMs":1.06,"status":"ok","msg":"MCP tool execution completed"}
+drag-register-seed ev_d77e4d7b05c3f8b84e5f010891385871e4184435cb72d2efc95d96ba52dd9b5b C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-drag-register-seed.json
+{"level":30,"time":1791851629362,"application":"rea","mode":"mcp","layer":"server","tool":"xrefs","durationMs":0.35,"status":"ok","msg":"MCP tool execution completed"}
+drag-start-seed ev_d015c5a4c1e856ceed9ef5a2aa5bffaa749d13972c660a16431cc485302ec63b C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-drag-start-seed.json
+{"level":30,"time":1791851629364,"application":"rea","mode":"mcp","layer":"server","tool":"xrefs","durationMs":0.3,"status":"ok","msg":"MCP tool execution completed"}
+drag-description-seed ev_d659972cba56feede3e5c44fc3e6f4e3a6ab600204845b3874849226e09413b1 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-drag-description-seed.json
+{"level":30,"time":1791851629366,"application":"rea","mode":"mcp","layer":"server","tool":"xrefs","durationMs":0.37,"status":"ok","msg":"MCP tool execution completed"}
+clipboard-effect-seed ev_6b6c459d2a3b057af24f1978bfbc15af3c60101c91931760188546c34d5013e7 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-clipboard-effect-seed.json
+{"level":30,"time":1791851629367,"application":"rea","mode":"mcp","layer":"server","tool":"xrefs","durationMs":0.35,"status":"ok","msg":"MCP tool execution completed"}
+window-proc-seed ev_224fb42ee405e74f0cf266d75349ee0df458b6a3915066f4936e9a70a02fd480 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-window-proc-seed.json
+{"level":30,"time":1791851629369,"application":"rea","mode":"mcp","layer":"server","tool":"xrefs","durationMs":0.3,"status":"ok","msg":"MCP tool execution completed"}
+icon-seed ev_abe11b5a01cd1487d28a3dc6c80186493fb040258a1b7bb58edb62e6994aa50c C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-icon-seed.json
+{"level":30,"time":1791851629470,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":98,"status":"ok","msg":"MCP tool execution completed"}
+operation-worker ev_f7f2f14a0c22f1852e7733cc9be7c1163708afa1aeeef1306a68e69b2dda0b7d C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-operation-worker.json
+{"level":30,"time":1791851629748,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":244.76,"status":"ok","msg":"MCP tool execution completed"}
+hotkey-parser ev_8d36029546c7fcf2ee239f89d3a9de2ea3cb005a50cee5600736dacea7e8d4ea C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-hotkey-parser.json
+{"level":30,"time":1791851629975,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":29.12,"status":"ok","msg":"MCP tool execution completed"}
+dynamic-submenus ev_867efb4cb66592f20f75dadc91eb82d5c8e92bdb2608ac00f2b3e09255947637 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-dynamic-submenus.json
+{"level":30,"time":1791851629995,"application":"rea","mode":"mcp","layer":"server","tool":"xrefs","durationMs":0.5,"status":"ok","msg":"MCP tool execution completed"}
+recycle-enumeration-seed ev_20e6695345a18eff7bdea6a51d88640b0248ccd1acdbe1b4f685a2c8d6b0dda4 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-recycle-enumeration-seed.json
+{"level":30,"time":1791851630022,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_info","durationMs":25.5,"status":"ok","msg":"MCP tool execution completed"}
+command-registration-metadata ev_fba0ffd1cc45c7fc2072fe52d08ad76926cb7ba1188c3daeed99d8eb1c228159 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-command-registration-metadata.json
+{"level":30,"time":1791851630044,"application":"rea","mode":"mcp","layer":"server","tool":"inspect_native_instruction","durationMs":1.9,"status":"ok","msg":"MCP tool execution completed"}
+shell-comparator-instruction ev_cec91681530652c5aa349d6e2ce2af855cf736e4c4b52ee468ced58ca402d651 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-07-shell-comparator-instruction.json
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\analysis\\rea\\queries-07-bundle.json',
+    bytes: 22900294,
+    records: 54,
+    unknowns: 0
+  }
+}
+{"level":30,"time":1791851636348,"application":"rea","mode":"mcp","layer":"server","tool":"close_binary","durationMs":6033.97,"status":"ok","msg":"MCP tool execution completed"}
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\analysis\\fpilot.rea-snapshot.json',
+    bytes: 44934494,
+    primitive_entries: 15,
+    workflow_entries: 1,
+    evidence_records: 54
+  }
+}

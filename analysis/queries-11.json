@@ -1,0 +1,8 @@
+[
+  {"label":"embedded-fragment-shader","name":"read_bytes","arguments":{"address":"0x1401d1b70","length":5441}},
+  {"label":"embedded-vertex-shader","name":"read_bytes","arguments":{"address":"0x1401d30c0","length":1823}},
+  {"label":"drop-target-interface-id","name":"read_bytes","arguments":{"address":"0x1401d6cb8","length":16}},
+  {"label":"drag-ui-dispatch","name":"analyze_function","arguments":{"procedure":"0x1401a9d60"}},
+  {"label":"panel-renderer-metadata","name":"procedure_info","arguments":{"procedure":"0x1400d20e0"}},
+  {"label":"panel-renderer-pseudocode","name":"procedure_pseudo_code","arguments":{"procedure":"0x1400d20e0"}}
+]

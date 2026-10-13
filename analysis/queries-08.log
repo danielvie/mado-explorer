@@ -1,0 +1,80 @@
+{"level":30,"time":1791851707803,"application":"rea","mode":"mcp","layer":"server","tool":"open_binary","durationMs":3681.51,"status":"ok","msg":"MCP tool execution completed"}
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\FPilot.exe',
+    format: 'pe',
+    kind: 'executable',
+    sha256: '07d106ca23adab9115af3d529b6fc4bb27dd831e0923103b655707e76326363e',
+    architecture: 'x86_64'
+  }
+}
+{"level":30,"time":1791851816962,"application":"rea","mode":"mcp","layer":"server","tool":"resolve_containing_procedure","durationMs":109152.76,"status":"ok","msg":"MCP tool execution completed"}
+drag-register ev_85f1a4124d3f888459cef9c58e90d3936c48e22fc9b43d3ab085385761f69761 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-drag-register.json
+{"level":30,"time":1791851817023,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":54.82,"status":"ok","msg":"MCP tool execution completed"}
+drag-register function ev_f091a28cee929749fa4fac963aef0f1152274358317ef0ac8aa00691fafc95ab
+{"level":30,"time":1791851817038,"application":"rea","mode":"mcp","layer":"server","tool":"resolve_containing_procedure","durationMs":0.87,"status":"ok","msg":"MCP tool execution completed"}
+drag-start ev_af88ef19e251f496a370cca90ad604b8dd7c4b63b8971a75721fe0b6cacf1585 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-drag-start.json
+{"level":30,"time":1791851817218,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":178.25,"status":"ok","msg":"MCP tool execution completed"}
+drag-start function ev_9038e47ad7ea55db65b291ea13173323f2c96a390dd2405ba9ac94a8f219412d
+{"level":30,"time":1791851817312,"application":"rea","mode":"mcp","layer":"server","tool":"resolve_containing_procedure","durationMs":0.99,"status":"ok","msg":"MCP tool execution completed"}
+drag-description ev_e525997ecac03a1a175742f1541bb46519ced57fc9da93b6745b2479ad5d4b4d C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-drag-description.json
+{"level":30,"time":1791851817403,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":88.98,"status":"ok","msg":"MCP tool execution completed"}
+drag-description function ev_405b2fc856527fd284b7d555c03cdd769660f3766889abce7fc2fd0e6b9d173f
+{"level":30,"time":1791851817455,"application":"rea","mode":"mcp","layer":"server","tool":"resolve_containing_procedure","durationMs":1.01,"status":"ok","msg":"MCP tool execution completed"}
+clipboard-read ev_a569cf49a81853d9c1167dc27baa4ab2e8645b9782af8b65692cc8b49bfdff27 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-clipboard-read.json
+{"level":30,"time":1791851817704,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":246.4,"status":"ok","msg":"MCP tool execution completed"}
+clipboard-read function ev_0419f780caf7f63b737b97c9ad245353280dfd9da60bc7c8c61bae13db922476
+{"level":30,"time":1791851817859,"application":"rea","mode":"mcp","layer":"server","tool":"resolve_containing_procedure","durationMs":1.12,"status":"ok","msg":"MCP tool execution completed"}
+clipboard-write ev_a899d962f8e2740b8e10454e31bf313ee346a9442937f59b627ae5e662b88ca7 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-clipboard-write.json
+{"level":30,"time":1791851817963,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":102.57,"status":"ok","msg":"MCP tool execution completed"}
+clipboard-write function ev_7b6584c2368a194bc4c21612217abf09db6a87fa7efcfc8986e8dee0243f718d
+{"level":30,"time":1791851818021,"application":"rea","mode":"mcp","layer":"server","tool":"resolve_containing_procedure","durationMs":0.82,"status":"ok","msg":"MCP tool execution completed"}
+window-proc ev_ecd93a43ce3c782d8075c6a4812af0a5b5c19b4913da4f0167f4dfc32fbb49ac C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-window-proc.json
+{"level":30,"time":1791851818450,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":427.47,"status":"ok","msg":"MCP tool execution completed"}
+window-proc function ev_4f0bcb1a9577b318a148308c1578f0c4b39900ede729f8f7ee534e11437f849a
+{"level":30,"time":1791851818706,"application":"rea","mode":"mcp","layer":"server","tool":"resolve_containing_procedure","durationMs":0.76,"status":"ok","msg":"MCP tool execution completed"}
+shell-icon ev_c10c6e40634d0d28ffd0879ff6bafe830e1ccd708522b63cc030dda4f830d7d0 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-shell-icon.json
+{"level":30,"time":1791851818742,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":33.39,"status":"ok","msg":"MCP tool execution completed"}
+shell-icon function ev_fec91779e7bb2bf217bba94a22187e1b339ed199c625a5ad11b6c245fd834a62
+{"level":30,"time":1791851818763,"application":"rea","mode":"mcp","layer":"server","tool":"resolve_containing_procedure","durationMs":0.73,"status":"ok","msg":"MCP tool execution completed"}
+recycle-enumeration ev_42c721cd2ed090fca657019a33dc9be28e320a2f9c6620e919565b75be8cca39 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-recycle-enumeration.json
+{"level":30,"time":1791851819237,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":472.77,"status":"ok","msg":"MCP tool execution completed"}
+recycle-enumeration function ev_39066d9daa85548651bb4dc4d5824c553222ddda77767f7b9079072ac0016beb
+{"level":30,"time":1791851819596,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_callers","durationMs":0.98,"status":"ok","msg":"MCP tool execution completed"}
+clipboard-get-callers ev_90882a7e3fcaff38886bd44d6beaed77bfdb5f966e893c504c9a5c0c16772123 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-clipboard-get-callers.json
+{"level":30,"time":1791851819599,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_callers","durationMs":0.4,"status":"ok","msg":"MCP tool execution completed"}
+clipboard-set-callers ev_137133e3276cae455c0134e38b8ba20ab04bf17a77b13720efab2481b5fe9062 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-clipboard-set-callers.json
+{"level":30,"time":1791851819600,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_callers","durationMs":0.34,"status":"ok","msg":"MCP tool execution completed"}
+ole-init-callers ev_790f18d426ded9505a98153e14a2979a6c2d5702176c2f77bb8beafa77704d7b C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-ole-init-callers.json
+{"level":30,"time":1791851819642,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":40.73,"status":"ok","msg":"MCP tool execution completed"}
+worker-callback ev_0b3ff9016a4fa429dc992e8389c106f24b5a45071f8b34b3f05019ec95ddddef C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-worker-callback.json
+{"level":30,"time":1791851819995,"application":"rea","mode":"mcp","layer":"server","tool":"analyze_function","durationMs":338.02,"status":"ok","msg":"MCP tool execution completed"}
+key-chord-parser ev_0f1ea656d25feb0cebad3021c133736830fa44a20e03f635f7fe5004fa0bd1c3 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-key-chord-parser.json
+{"level":30,"time":1791851820094,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_assembly","durationMs":25.88,"status":"ok","msg":"MCP tool execution completed"}
+command-registration-assembly ev_55ae7be3239235ddc3b4c28a9240ef3b08e715a4a1176a2bb4da379f504ca1aa C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-command-registration-assembly.json
+{"level":30,"time":1791851820105,"application":"rea","mode":"mcp","layer":"server","tool":"read_bytes","durationMs":1.33,"status":"ok","msg":"MCP tool execution completed"}
+shell-comparator-bytes ev_ba340512e8e1b30b7b13673f3f48df5c19388674490fb44d2cdfb0a1e35f6cab C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-shell-comparator-bytes.json
+{"level":30,"time":1791851820110,"application":"rea","mode":"mcp","layer":"server","tool":"inspect_native_instruction","durationMs":1.61,"status":"ok","msg":"MCP tool execution completed"}
+shell-comparator-subtract ev_a31812e1080d5a3870fbb65dd7d1b2fa4a74b8c39223301b92acff28a700ebcf C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-shell-comparator-subtract.json
+{"level":30,"time":1791851820113,"application":"rea","mode":"mcp","layer":"server","tool":"inspect_native_instruction","durationMs":0.35,"status":"ok","msg":"MCP tool execution completed"}
+shell-comparator-return ev_843d6771f07252004db339dca7846740a0f2873fece54cbccb002bb945cf1185 C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-shell-comparator-return.json
+{"level":30,"time":1791851820114,"application":"rea","mode":"mcp","layer":"server","tool":"read_bytes","durationMs":0.25,"status":"ok","msg":"MCP tool execution completed"}
+hotkey-keys-label ev_5f21aa0f016dc5e7379b3056e22d893d2d7aebe03fb7e441a5c0b0ced629438f C:\SANDBOX\REPOS\rev-filepilot\analysis\rea\queries-08-hotkey-keys-label.json
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\analysis\\rea\\queries-08-bundle.json',
+    bytes: 35042589,
+    records: 80,
+    unknowns: 0
+  }
+}
+{"level":30,"time":1791851829477,"application":"rea","mode":"mcp","layer":"server","tool":"close_binary","durationMs":8976.07,"status":"ok","msg":"MCP tool execution completed"}
+{
+  result: {
+    path: 'C:\\SANDBOX\\REPOS\\rev-filepilot\\analysis\\fpilot.rea-snapshot.json',
+    bytes: 68619968,
+    primitive_entries: 25,
+    workflow_entries: 1,
+    evidence_records: 80
+  }
+}
