@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-Implementation authorized by the user on 2026-10-13, including the proposed defaults. Native gates and actual acceptance evidence remain required. Working application identity: Wayfarer Files (wayfarer-files); independent versioned state remains planned. Native integration checkpoints must pass before the candidate stack is accepted for the release.
+Implementation authorized by the user on 2026-10-13, including the proposed defaults. Actual acceptance evidence remains required; the user subsequently authorized continuing implementation while user-dependent manual tests/reviews are DEFERRED, not passed or waived. Working application identity: Wayfarer Files (wayfarer-files); independent versioned state is implemented under Local AppData/WayfarerFiles. Native integration checkpoints must pass before the candidate stack is accepted for the release.
 
 The existing [recovered specification](C:/SANDBOX/REPOS/rev-filepilot/SPECIFICATION.md) remains an evidence document. This plan defines proposed behavior for an independent Rust application, not claims about File Pilot. Unknowns in the recovered spec become explicit design choices or later investigation tasks, never guessed compatibility requirements.
 
@@ -19,25 +19,25 @@ Success means the MVP acceptance checkpoint passes on Windows with disposable fi
 | ID | Status | Decision and reason |
 | --- | --- | --- |
 | D01 | Confirmed context | Rust application; Windows is the initial target. |
-| D02 | Proposed | Develop/test on Windows 11 x64 first. Windows 10 and ARM support are not claimed until separately verified. |
-| D03 | Proposed, gated | Use eframe/egui, egui_extras, and egui_dock for a Rust-rendered UI. Accept only after HWND/COM/menu/drop/accessibility gates pass. |
-| D04 | Proposed | Create one application crate under `app/`. Keep `FPilot.exe`, `analysis/`, the evidence spec, and root Taskfile unchanged. |
-| D05 | Proposed | Use Microsoft's `windows` bindings for Shell, COM, clipboard, WIC, and HWND integration. Standard-library workers handle ordinary enumeration. No async runtime, database, or plugin framework initially. |
-| D06 | Proposed | Use application-owned typed values and a versioned session schema. No original JSON interoperability or recovered memory layouts. |
-| D07 | Proposed | Native Shell popup first; searchable custom Shell presentation later. This makes compatibility testable before recreating menu styling. |
-| D08 | Proposed | Read-only Shell/drag probes precede production transfer wiring. Use one transfer authority per operation/drop to prevent duplicate mutations. |
-| D09 | Proposed | Implement safe outcomes, clipboard handling, and path validation rather than copying recovered unchecked behavior. |
-| D10 | Proposed | Delegate MVP incoming filesystem transfers synchronously to the acquired Shell IDropTarget. Do not also enqueue an application transfer; return delegated status/effect and rescan. A custom asynchronous OLE protocol requires separate review. |
+| D02 | Authorized and implemented | Develop/test on Windows 11 x64 first. Windows 10 and ARM support are not claimed until separately verified. |
+| D03 | Implemented; manual acceptance deferred | Use eframe/egui, egui_extras, and egui_dock for a Rust-rendered UI. Accept only after HWND/COM/menu/drop/accessibility gates pass. |
+| D04 | Authorized and implemented | Create one application crate under `app/`. Keep `FPilot.exe`, `analysis/`, the evidence spec, and root Taskfile unchanged. |
+| D05 | Authorized and implemented | Use Microsoft's `windows` bindings for Shell, COM, clipboard, WIC, and HWND integration. Standard-library workers handle ordinary enumeration. No async runtime, database, or plugin framework initially. |
+| D06 | Authorized and implemented | Use application-owned typed values and a versioned session schema. No original JSON interoperability or recovered memory layouts. |
+| D07 | Authorized and implemented | Native Shell popup first; searchable custom Shell presentation later. This makes compatibility testable before recreating menu styling. |
+| D08 | Authorized and implemented | Read-only Shell/drag probes precede production transfer wiring. Use one transfer authority per operation/drop to prevent duplicate mutations. |
+| D09 | Authorized and implemented | Implement safe outcomes, clipboard handling, and path validation rather than copying recovered unchecked behavior. |
+| D10 | Authorized and implemented | Delegate MVP incoming filesystem transfers synchronously to the acquired Shell IDropTarget. Do not also enqueue an application transfer; return delegated status/effect and rescan. A custom asynchronous OLE protocol requires separate review. |
 
-Pin compatible dependency versions and the supported Rust toolchain during T01 after approval. The workstation currently provides Rust/Cargo 1.95.0 and Task 3.50.0; this is environment inventory, not a chosen minimum supported Rust version.
+T01 pinned compatible dependencies in Cargo.lock and declared Rust 1.95 as the minimum toolchain. The workstation provides Rust/Cargo 1.95.0 and Task 3.50.0. The canonical completion record contains build and dependency evidence.
 
-Potential supporting dependencies are `serde`, `serde_json`, and `notify`, added only when their tasks need them. WIC is the initial Windows image backend. Do not add a second image decoder, Tokio, Rayon, a fuzzy-search crate, or a native-dialog crate without an actual need and review.
+Supporting dependencies `serde`, `serde_json`, and `notify` are implemented for their respective codec/watcher tasks. WIC is the initial Windows image backend. Do not add a second image decoder, Tokio, Rayon, a fuzzy-search crate, or a native-dialog crate without an actual need and review.
 
 Framework/API references: [egui](https://github.com/emilk/egui), [virtualized table rows](https://docs.rs/egui_extras/latest/egui_extras/struct.TableBody.html), [egui_dock](https://docs.rs/egui_dock/latest/egui_dock/), [Windows bindings](https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/UI/Shell/index.html), and [IFileOperation requirements](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-ifileoperation). Verify pinned-version documentation before implementing API-dependent tasks.
 
 ## Capability map
 
-These are responsibility boundaries, not a requirement to create separate crates or empty modules. Create files only when a task needs them. The map is proposed for approval.
+These are responsibility boundaries, not a requirement to create separate crates or empty modules. Create files only when a task needs them. The map records the authorized responsibility boundaries; actual modules are listed in the application source and coverage matrix.
 
 | Module ID | Responsibility | Depends on |
 | --- | --- | --- |
@@ -164,9 +164,9 @@ struct ListingRequest {
 
 ## Commands and Definition of Done
 
-Current analysis verification remains `task test` at the repository root. It checks evidence, not the future application.
+Analysis verification remains `task test` at the repository root. It checks reference evidence; application verification uses the separate app/ Cargo project.
 
-The following commands become runnable in T01. Until then, they are planned commands, not completed build/test results:
+The following application commands are implemented. Actual execution results, skipped/deferred tests and tested revisions are recorded in tasks/todo.md; listing a command here alone is not pass evidence:
 
 ```text
 cargo build --manifest-path app/Cargo.toml
@@ -183,7 +183,7 @@ task -d app clean
 
 The application's Taskfile must have descriptions, a default task running `task --list`, and run/build/test/clean tasks. Root tasks remain analysis-only. Clean removes build output, never analysis, fixtures with unknown ownership, or user/session data.
 
-Every completed task must satisfy its acceptance criteria, focused tests, build, formatting, and linting; update the canonical checklist with evidence. Add one small runnable regression check for non-trivial logic, not a testing framework for its own sake. Keep pure state/codec tests automatic. Mark native Shell/GUI mutation tests ignored and run them explicitly on Windows, one at a time, using newly created owned fixtures. Test commands in the checklist are planned filters; each task must add tests matching its named filter.
+Every integrated implementation must satisfy its implementable behavior, focused tests, build, formatting and linting; record automated verification separately from acceptance. User-dependent manual criteria remain DEFERRED in [tasks/deferred-tests.md](deferred-tests.md), with steps, prerequisites, expected results, reason and related version/change; they do not block continued implementation. Actual failures and technical dependencies remain blocking. Do not claim release acceptance while its required manual evidence is missing. Add one small runnable regression check for non-trivial logic, not a testing framework for its own sake. Keep pure state/codec tests automatic. Mark native Shell/GUI mutation tests ignored and run them explicitly on Windows, one at a time, using newly created owned fixtures. Test commands in the checklist are planned filters; each task must add tests matching its named filter.
 
 Example opt-in command after its tests exist:
 
@@ -219,7 +219,7 @@ The checklist contains dependencies; a task is not ready merely because it appea
 
 ## Parallel work rules
 
-Per the 2026-10-13 user instruction, limit work to six concurrent agents total, including the main agent. Workers must not spawn extra agents outside this cap. Parallelism is an execution option, not a request to start implementation now.
+Per the 2026-10-13 user instruction, limit work to six concurrent agents total, including the main agent. Workers must not spawn extra agents outside this cap. Implementation and parallel work are explicitly authorized; preserve this total-agent cap.
 
 - HWND/COM ownership, module/dependency wiring, model/schema changes, and command-registry integration have one owner and land sequentially.
 - After CP03 and stable listing/intent contracts, layout work T10/T11 and palette T12 can be split, but their shared UI integration must be serialized or assigned to one owner.
@@ -227,7 +227,7 @@ Per the 2026-10-13 user instruction, limit work to six concurrent agents total, 
 - T19 image decoding and T20 watcher work can run independently after shared generation/error contracts. T45 presents accepted image results; the main owner merges UI/state integration.
 - T21 session codec precedes T43 replacement safety, which precedes T44 lifecycle/single-writer integration. These are a dependency chain, not three parallel writers.
 - Later recursive listing/statistics, Quick Access data work, and mutation-free preview/generator tests can be independent. T31 must finish before T32.
-- UI files, `Cargo.toml`, `Cargo.lock`, module wiring, schema, and the task checklist are shared write hotspots. Use exclusive file ownership or separate git worktrees after a repository is established, then verify merged builds. Do not assume worktree isolation is currently available: this directory is not a git checkout.
+- UI files, `Cargo.toml`, `Cargo.lock`, module wiring, schema, and the task checklist are shared write hotspots. Use exclusive file ownership or separate git worktrees after a repository is established, then verify merged builds. Do not assume worktree isolation is currently available: Git metadata is present, but a usable worktree was not verified and no version-control changes are part of this milestone.
 
 ## Risks and mitigation
 
@@ -248,8 +248,13 @@ Per the 2026-10-13 user instruction, limit work to six concurrent agents total, 
 
 - Q1: Approve the candidate egui/eframe stack and the ordinary-filesystem MVP? Recommended yes, conditional on CP03, because it minimizes custom UI work while testing Shell integration early.
 - Q2: Is Windows 11 x64 sufficient for the first verified release? Recommended yes; add Windows 10 only after a defined test environment and toolkit compatibility check.
-- Q3: Approve a new application name/state directory and independent session format? Recommended yes; working label is Rust File Manager, not a shipping brand. Original File Pilot files remain untouched.
+- Q3: Approve a new application name/state directory and independent session format? Recommended yes; implemented application identity is Wayfarer Files with an independent WayfarerFiles state directory. Original File Pilot files remain untouched.
 - Q4: Is capability similarity sufficient, rather than exact pixels, original JSON, all original options, or identical key/search rules? Recommended yes for MVP; exact compatibility needs separate evidence and acceptance scenarios.
 
-The user authorized implementation on 2026-10-13. Q1-Q4 use the proposed defaults. Implementation proceeds subject to dependency and native verification gates; no further routine approval is needed.
+The user authorized implementation on 2026-10-13. Q1-Q4 use the proposed defaults. Implementation proceeds subject to technical dependencies and actual native failures; missing user-only tests/reviews are deferred under the subsequent user instruction. Repeated checkpoint human-review clauses no longer block engineering progression, including advanced tasks after technical MVP integration. No further routine approval is needed. Candidate-stack/release acceptance remains unverified until evidence exists; link-effect approval, irreversible action-time permissions and other safety boundaries remain in force.
 
+
+
+## Implemented status, 2026-10-13
+
+The independent application and all 45 task implementation surfaces are integrated. Schema version 1 stores typed filesystem/Recycle Bin locations, tabs/splits, view/inspector settings, preferences, named layouts and monitor-clamped geometry. Full automatic/debug/release and native results are recorded chronologically in tasks/todo.md, including resolved failures/fixes and the final post-guard passing rerun. Proposed-default wording elsewhere records the original design rationale; accepted defaults do not mean manual candidate-stack or release acceptance passed. The acceptance matrix is app/tests/windows-acceptance.md and user-dependent scenarios remain DEFERRED in tasks/deferred-tests.md. Arbitrary external font loading, general virtual-file streams and link drag effects remain unsupported. No commit/push/publication is implied.

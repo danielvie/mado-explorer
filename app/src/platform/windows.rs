@@ -172,6 +172,37 @@ unsafe extern "system" fn subclass(
     // SAFETY: Always preserve toolkit processing, including input and destruction.
     unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
 }
+
+/// Current monitor work area in logical UI points. The HWND is borrowed on its owner thread.
+pub fn work_area(hwnd: HWND, scale: f32) -> std::result::Result<([f32; 2], [f32; 2]), String> {
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+    };
+    if !scale.is_finite() || scale <= 0.0 {
+        return Err("Invalid window scale".into());
+    }
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: valid borrowed HWND; API writes only the initialized stack MONITORINFO.
+    unsafe {
+        if !GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info).as_bool()
+        {
+            return Err("Monitor work area unavailable".into());
+        }
+    }
+    Ok((
+        [
+            info.rcWork.left as f32 / scale,
+            info.rcWork.top as f32 / scale,
+        ],
+        [
+            (info.rcWork.right - info.rcWork.left) as f32 / scale,
+            (info.rcWork.bottom - info.rcWork.top) as f32 / scale,
+        ],
+    ))
+}
 #[cfg(test)]
 mod tests {
     use super::*;

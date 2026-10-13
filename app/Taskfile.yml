@@ -23,3 +23,8 @@ tasks:
     desc: Remove this application's Cargo build output
     cmds:
       - cargo clean
+
+  release:
+    desc: Build the release executable with the embedded Windows manifest
+    cmds:
+      - cargo build --locked --release
